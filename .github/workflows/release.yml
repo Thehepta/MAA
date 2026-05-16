@@ -1,0 +1,35 @@
+name: Build and Release Zip
+
+on:
+  push:
+    tags:
+      - 'v*'  # 只在推送 tag 时触发，如 v1.0.0
+
+jobs:
+  build:
+    name: Package and Release
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Get version from tag
+        id: get_version
+        run: echo "VERSION=${GITHUB_REF#refs/tags/}" >> $GITHUB_ENV
+
+      - name: Create zip archive
+        run: |
+          REPO_NAME=${GITHUB_REPOSITORY##*/}
+          ZIP_NAME="${REPO_NAME}-${{ env.VERSION }}.zip"
+          echo "ZIP_NAME=$ZIP_NAME" >> $GITHUB_ENV
+          git archive --format=zip --output=$ZIP_NAME HEAD
+
+      - name: Create Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ env.VERSION }}
+          name: Release ${{ env.VERSION }}
+          files: ${{ env.ZIP_NAME }}
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
