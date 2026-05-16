@@ -1,7 +1,7 @@
 from typing import List, Tuple
 
 from d810.generic import GenericDispatcherInfo
-from d810.optimizers.flow.flattening.generic import GenericDispatcherBlockInfo
+from d810.generic import GenericDispatcherBlockInfo
 from d810.hexrays_helpers import append_mop_if_not_in_list, extract_num_mop, CONTROL_FLOW_OPCODES
 
 from ida_hexrays import mblock_t, mop_t, optblock_t, minsn_visitor_t, mbl_array_t
@@ -10,8 +10,7 @@ import ida_kernwin as kw
 
 
 from d810.tracker import MopHistory, MopTracker
-from d810.optimizers.flow.flattening.utils import NotResolvableFatherException, get_all_possibles_values
-
+from d810.utils import NotResolvableFatherException, get_all_possibles_values
 
 FLATTENING_JUMP_OPCODES = [hr.m_jnz, hr.m_jz, hr.m_jae, hr.m_jb, hr.m_ja, hr.m_jbe, hr.m_jg, hr.m_jge, hr.m_jl,
                            hr.m_jle]

@@ -20,6 +20,15 @@ class NotDuplicableFatherException(UnflatteningException):
 class NotResolvableFatherException(UnflatteningException):
     pass
 
+
+def get_all_possibles_values(mop_histories, searched_mop_list, verbose=False):
+    mop_cst_values_list = []
+    for mop_history in mop_histories:
+        mop_cst_values_list.append([mop_history.get_mop_constant_value(searched_mop)
+                                    for searched_mop in searched_mop_list])
+    return mop_cst_values_list
+
+
 def get_all_subclasses(python_class):
     python_class.__subclasses__()
 
