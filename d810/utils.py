@@ -5,6 +5,20 @@ from d810.hexrays_helpers import MSB_TABLE
 CTYPE_SIGNED_TABLE = {1: ctypes.c_int8, 2: ctypes.c_int16, 4: ctypes.c_int32, 8: ctypes.c_int64}
 CTYPE_UNSIGNED_TABLE = {1: ctypes.c_uint8, 2: ctypes.c_uint16, 4: ctypes.c_uint32, 8: ctypes.c_uint64}
 
+class UnflatteningException(Exception):
+    pass
+
+
+class DispatcherUnflatteningException(UnflatteningException):
+    pass
+
+
+class NotDuplicableFatherException(UnflatteningException):
+    pass
+
+
+class NotResolvableFatherException(UnflatteningException):
+    pass
 
 def get_all_subclasses(python_class):
     python_class.__subclasses__()

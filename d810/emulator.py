@@ -1,8 +1,11 @@
 from __future__ import annotations
 import logging
 from typing import List, Union, Dict
-from idaapi import getseg, get_qword, SEGPERM_WRITE
+
+from ida_bytes import get_qword
+# from idaapi import getseg, get_qword, SEGPERM_WRITE
 from ida_hexrays import *
+from ida_segment import getseg, SEGPERM_WRITE
 
 from d810.utils import unsigned_to_signed, signed_to_unsigned, get_add_cf, get_add_of, get_sub_of, ror, get_parity_flag
 from d810.hexrays_helpers import equal_mops_ignore_size, get_mop_index, AND_TABLE, CONTROL_FLOW_OPCODES, \

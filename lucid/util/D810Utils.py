@@ -1,6 +1,6 @@
 from typing import List, Tuple
 
-from d810.optimizers.flow.flattening.generic import GenericDispatcherInfo
+from d810.generic import GenericDispatcherInfo
 from d810.optimizers.flow.flattening.generic import GenericDispatcherBlockInfo
 from d810.hexrays_helpers import append_mop_if_not_in_list, extract_num_mop, CONTROL_FLOW_OPCODES
 
