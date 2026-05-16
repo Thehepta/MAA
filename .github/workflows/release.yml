@@ -1,45 +1,51 @@
-name: Build and Release MMA
+name: Release MMA Plugin
 
 on:
-  release:
-    types: [created]
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
 
 jobs:
-  build:
+  release:
     runs-on: ubuntu-latest
 
-    env:
-      VERSION: ${{ github.event.release.tag_name }}
-
     steps:
-      - name: Checkout repository
+      - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Install dependencies
+      - name: Extract version
         run: |
-          sudo apt-get update
-          sudo apt-get install -y jq zip
+          VERSION=${GITHUB_REF#refs/tags/v}
+          echo "VERSION=$VERSION" >> $GITHUB_ENV
 
-      - name: Update ida-plugin.json version
+      - name: Prepare release directory
         run: |
-          echo "Updating version to $VERSION"
+          mkdir -p release
 
-          jq --arg v "$VERSION" \
-            '.plugin.version = $v' \
-            ida-plugin.json > tmp.json
-
-          mv tmp.json ida-plugin.json
-
-      - name: Create release zip
+      - name: Copy project files
         run: |
-          zip -r MMA-${VERSION}.zip \
-            ida-plugin.json \
-            *.py \
-            IDR_KB/ \
-            README.md \
-            LICENSE
+          rsync -av \
+            --exclude='.git/' \
+            --exclude='.github/' \
+            ./ release/
 
-      - name: Upload release asset
+      - name: Update ida-plugin.json version (in release only)
+        run: |
+          jq ".plugin.version = \"${{ env.VERSION }}\"" \
+            release/ida-plugin.json > release/ida-plugin.json.tmp
+          mv release/ida-plugin.json.tmp release/ida-plugin.json
+
+      - name: Create zip archive
+        run: |
+          cd release
+          zip -r ../MMA-${{ env.VERSION }}.zip .
+
+      - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
+          tag_name: v${{ env.VERSION }}
+          name: MMA v${{ env.VERSION }}
           files: MMA-${{ env.VERSION }}.zip
