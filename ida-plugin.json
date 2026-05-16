@@ -7,7 +7,6 @@
     "idaVersions": ">=9.0",
     "description": "",
     "license": "BSD 2-Clause",
-    "pythonDependencies": [""],
     "categories": [
       "deobfuscation",
       "other",
