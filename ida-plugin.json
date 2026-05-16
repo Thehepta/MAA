@@ -1,0 +1,31 @@
+{
+  "IDAMetadataDescriptorVersion": 1,
+  "plugin": {
+    "name": "MMA",
+    "entryPoint": "lucid_plugin.py",
+    "version": "0.1",
+    "idaVersions": ">=9.0",
+    "description": "",
+    "license": "BSD 2-Clause",
+    "pythonDependencies": [""],
+    "categories": [
+      "deobfuscation",
+      "other",
+      "api-scripting-and-automation"
+    ],
+    "urls": {
+      "repository": "https://github.com/Thehepta/MAA"
+    },
+    "authors": [
+      {
+        "name": "Thehepta",
+        "email": "rizixi@foxmail.com"
+      }
+    ],
+    "keywords": [
+      "microcode",
+      "D810",
+      "lucid"
+    ]
+  }
+}
