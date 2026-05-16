@@ -1,4 +1,4 @@
-name: Build and Release Zip
+name: Release MMA Plugin
 
 on:
   push:
@@ -9,26 +9,43 @@ permissions:
   contents: write
 
 jobs:
-  build:
-    name: Package and Release
+  release:
     runs-on: ubuntu-latest
 
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
-      - name: Get version
-        run: echo "VERSION=${GITHUB_REF#refs/tags/}" >> $GITHUB_ENV
+      - name: Extract version
+        run: |
+          VERSION=${GITHUB_REF#refs/tags/v}
+          echo "VERSION=$VERSION" >> $GITHUB_ENV
+
+      - name: Update plugin.json version
+        run: |
+          jq ".plugin.version = \"${{ env.VERSION }}\"" plugin.json > tmp.json
+          mv tmp.json plugin.json
+
+      - name: Commit updated plugin.json
+        run: |
+          git config user.name "github-actions"
+          git config user.email "actions@users.noreply.github.com"
+          git add plugin.json
+          git commit -m "chore: bump version to ${{ env.VERSION }}" || echo "No changes"
+
+      - name: Push changes
+        run: git push origin HEAD:main
 
       - name: Create zip
         run: |
-          REPO_NAME=${GITHUB_REPOSITORY##*/}
-          ZIP_NAME="${REPO_NAME}-${{ env.VERSION }}.zip"
-          echo "ZIP_NAME=$ZIP_NAME" >> $GITHUB_ENV
-          git archive --format=zip --output=$ZIP_NAME HEAD
+          ZIP=MMA-${{ env.VERSION }}.zip
+          git archive --format=zip --output=$ZIP HEAD
 
-      - name: Upload Release
+      - name: Create Release
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: ${{ env.VERSION }}
-          name: Release ${{ env.VERSION }}
-          files: ${{ env.ZIP_NAME }}
+          tag_name: v${{ env.VERSION }}
+          name: MMA v${{ env.VERSION }}
+          files: ${{ env.ZIP }}

@@ -3,7 +3,7 @@
   "plugin": {
     "name": "MMA",
     "entryPoint": "lucid_plugin.py",
-    "version": "0.1",
+    "version": "version",
     "idaVersions": ">=9.0",
     "description": "",
     "license": "BSD 2-Clause",
