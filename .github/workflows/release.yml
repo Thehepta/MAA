@@ -1,51 +1,45 @@
-name: Release MMA Plugin
+name: Build and Release DelphiHelper
 
 on:
-  push:
-    tags:
-      - 'v*'
-
-permissions:
-  contents: write
+  release:
+    types: [created]
 
 jobs:
-  release:
+  build:
     runs-on: ubuntu-latest
 
+    env:
+      VERSION: ${{ github.event.release.tag_name }}
+
     steps:
-      - name: Checkout
+      - name: Checkout repository
         uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
 
-      - name: Extract version
+      - name: Install dependencies
         run: |
-          VERSION=${GITHUB_REF#refs/tags/v}
-          echo "VERSION=$VERSION" >> $GITHUB_ENV
+          sudo apt-get update
+          sudo apt-get install -y jq zip
 
-      - name: Update plugin.json version
+      - name: Update ida-plugin.json version
         run: |
-          jq ".plugin.version = \"${{ env.VERSION }}\"" plugin.json > tmp.json
-          mv tmp.json plugin.json
+          echo "Updating version to $VERSION"
 
-      - name: Commit updated plugin.json
+          jq --arg v "$VERSION" \
+            '.plugin.version = $v' \
+            ida-plugin.json > tmp.json
+
+          mv tmp.json ida-plugin.json
+
+      - name: Create release zip
         run: |
-          git config user.name "github-actions"
-          git config user.email "actions@users.noreply.github.com"
-          git add plugin.json
-          git commit -m "chore: bump version to ${{ env.VERSION }}" || echo "No changes"
+          zip -r DelphiHelper-${VERSION}.zip \
+            ida-plugin.json \
+            *.py \
+            IDR_KB/ \
+            README.md \
+            LICENSE
 
-      - name: Push changes
-        run: git push origin HEAD:main
-
-      - name: Create zip
-        run: |
-          ZIP=MMA-${{ env.VERSION }}.zip
-          git archive --format=zip --output=$ZIP HEAD
-
-      - name: Create Release
+      - name: Upload release asset
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: v${{ env.VERSION }}
-          name: MMA v${{ env.VERSION }}
-          files: ${{ env.ZIP }}
+          files: DelphiHelper-${{ env.VERSION }}.zip
