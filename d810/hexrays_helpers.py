@@ -334,14 +334,14 @@ def check_ins_have_same_operands(ins1: minsn_t, ins2: minsn_t, ignore_order=Fals
         return False
     return equal_mops_ignore_size(ins1.l, ins2.r) and equal_mops_ignore_size(ins1.r, ins2.l)
 
-
+# 如果等于-1 说明在列表中没有查找到mop
 def get_mop_index(searched_mop: mop_t, mop_list) -> int:
     for i, test_mop in enumerate(mop_list):
         if equal_mops_ignore_size(searched_mop, test_mop):
             return i
     return -1
 
-
+#如果mop 不在列表中则添加
 def append_mop_if_not_in_list(mop: mop_t, mop_list) -> bool:
     mop_index = get_mop_index(mop, mop_list)
     if mop_index == -1:

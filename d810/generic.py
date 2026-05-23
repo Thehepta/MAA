@@ -39,6 +39,7 @@ class GenericDispatcherBlockInfo(object):
 
     def update_use_def_lists(self, ins_mops_used: List[mop_t], ins_mops_def: List[mop_t]):
         for mop_used in ins_mops_used:
+            # 如果mop 不在列表中则添加
             append_mop_if_not_in_list(mop_used, self.use_list)
             mop_used_index = get_mop_index(mop_used, self.def_list)
             if mop_used_index == -1:
@@ -47,12 +48,16 @@ class GenericDispatcherBlockInfo(object):
             append_mop_if_not_in_list(mop_def, self.def_list)
 
     def update_with_ins(self, ins: minsn_t):
+        # 定义指定收集器，遍历一个指令中所有的mop
         ins_mop_info = InstructionDefUseCollector()
         ins.for_all_ops(ins_mop_info)
+        # 删除段寄存器 x86架构段寄存器
         cleaned_unresolved_ins_mops = remove_segment_registers(ins_mop_info.unresolved_ins_mops)
+        # 更新use 和def 链
         self.update_use_def_lists(cleaned_unresolved_ins_mops + ins_mop_info.memory_unresolved_ins_mops,
                                   ins_mop_info.target_mops)
         self.ins.append(ins)
+        # 当前块 的当前指令是不是 CONDITIONAL_JUMP_OPCODES ，如果是就把跳转的 comparison_value 和 compared_mop 保留
         if ins.opcode in CONDITIONAL_JUMP_OPCODES:
             num_mop, other_mop = extract_num_mop(ins)
             if num_mop is not None:

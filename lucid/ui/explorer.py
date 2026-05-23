@@ -7,7 +7,7 @@ import ida_idaapi
 import ida_kernwin
 import ida_hexrays
 
-from PyQt5 import QtWidgets, QtGui, QtCore, sip
+from PySide6 import QtWidgets, QtGui, QtCore, sip
 
 from lucid.ui.graph import show_microcode_graph
 from lucid.ui.sync import MicroCursorHighlight

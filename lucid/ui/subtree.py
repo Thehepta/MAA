@@ -3,7 +3,7 @@ import ida_moves
 import ida_hexrays
 import ida_kernwin
 
-from PyQt5 import QtWidgets, QtCore
+from PySide6 import QtWidgets, QtCore
 
 from lucid.util.hexrays import get_mcode_name, get_mopt_name
 
