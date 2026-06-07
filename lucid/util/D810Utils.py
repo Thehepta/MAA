@@ -140,12 +140,13 @@ def UnFlaInfo(mba,dispatch_block):
         father_histories = father_tracker.search_backward(dispatcher_father_block, None)
         if len(father_histories) > 1:
             print("father_block:{0} is  multiple branches".format(dispatcher_father_serial))
-
-        target_blk, disp_ins = dispatch_info.emulate_dispatcher_with_father_history(father_histories[0])
-        if target_blk is not None:
-            print("Unflattening graph: Making {0} goto {1}"
-                  .format(dispatcher_father_serial, target_blk.serial))
-
+        try:
+            # 还原,分发器到分发器的前驱这条代码路径的混淆
+            target_blk, disp_ins = dispatch_info.emulate_dispatcher_with_father_history(father_histories[0])
+            if target_blk is not None:
+                print("Unflattening graph: Making {0} goto {1}".format(dispatcher_father_serial, target_blk.serial))
+        except NotResolvableFatherException as e:
+            print("NotResolvableFatherException")
 
         father_histories_cst = get_all_possibles_values(father_histories, dispatch_info.entry_block.use_before_def_list,verbose=False)
         Const_Hex_str=""
