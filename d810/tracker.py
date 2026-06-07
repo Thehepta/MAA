@@ -314,6 +314,17 @@ class MopTracker(object):
             ins_def = ins_def.prev
         return ins_def
 
+
+    # 这个函数为什么还会添加变量那
+    # 现在有三条指令
+    # 指令3: eax = ecx + 1
+    # 指令2: ecx = [rdi + 8]
+    # 指令1: rdi = some_value
+    #
+    # 我们需要分析的变量是eax，在这里，eax已经找到了，但是他其实没有值，他需要依赖ecx
+    # 所以我们把eax从变量列表中移除
+    # 然后在寻找列表中添加ecx
+    # 这个设计是对于代码已经经过分析和优化了，不会出现eax重复定义的情况，或者说依赖ssa
     def update_history(self, blk: mblock_t, ins_def: minsn_t) -> bool:
         logger.debug("Updating history with {0}.{1}".format(blk.serial, format_minsn_t(ins_def)))
         self.history.insert_ins_in_block(blk, ins_def, before=True)
