@@ -7,7 +7,8 @@ import ida_idaapi
 import ida_kernwin
 import ida_hexrays
 
-from PySide6 import QtWidgets, QtGui, QtCore, sip
+from PySide6 import QtWidgets, QtGui, QtCore
+from shiboken6 import wrapInstance
 
 from lucid.ui.graph import show_microcode_graph
 from lucid.ui.sync import MicroCursorHighlight
@@ -717,7 +718,7 @@ class MicrocodeView(ida_kernwin.simplecustviewer_t):
                 return True
 
         p_qmenu = ctypes.cast(int(popup_handle), ctypes.POINTER(ctypes.c_void_p))[0]
-        qmenu = sip.wrapinstance(int(p_qmenu), QtWidgets.QMenu)
+        qmenu = wrapInstance(int(p_qmenu), QtWidgets.QMenu)
         self.filter = FilterMenu(qmenu)
         qmenu.installEventFilter(self.filter)
 
