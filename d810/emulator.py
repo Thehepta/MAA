@@ -21,7 +21,7 @@ from ida_hexrays import (
     m_setg, m_setge, m_setl, m_setle,
     m_jcnd, m_jnz, m_jz, m_jae, m_jb, m_ja, m_jbe,
     m_jg, m_jge, m_jl, m_jle, m_jtbl, m_ijmp, m_goto,
-    m_call, m_icall, m_ldx, m_stx,
+    m_call, m_icall, m_ldx, m_stx,get_mreg_name,
 )
 from ida_segment import getseg, SEGPERM_WRITE
 
@@ -126,7 +126,9 @@ class SymbolicMicroCodeEnvironment:
         """
         if mop.t == mop_r:
             # Register: use register number only (eax/rax/ax/al all share r=0)
-            return "reg{}".format(mop.r)
+            width = mop.size
+            name = get_mreg_name(mop.r,width)
+            return name
         elif mop.t == mop_S:
             # Stack variable: use stack offset
             return "stk{:x}".format(mop.s.off & 0xFFFFFFFF)
@@ -230,7 +232,9 @@ class SymbolicMicroCodeEnvironment:
         if len(self.mop_r_record) > 0:
             print("[Registers]")
             for mop, value in self.mop_r_record.items():
-                print("  {0} = {1}".format(format_mop_t(mop), value))
+                width = mop.size
+                name = get_mreg_name(mop.r, width)
+                print("  {0} = {1}".format(name, value))
 
         if len(self.mop_S_record) > 0:
             print("[Stack Variables]")
