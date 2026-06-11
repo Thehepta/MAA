@@ -6,7 +6,7 @@ from ida_hexrays import mblock_t, mop_t, optblock_t, minsn_visitor_t, mbl_array_
 import ida_lines
 import re
 
-from lucid.util.D810Utils import UnFlaInfo
+from lucid.util.D810Utils import UnFlaInfo, eval_blk
 
 
 def graphviz(mba,output_path):
@@ -110,6 +110,7 @@ class dominance_graphviewer_t(microcode_graphviewer_t):
         self.back_command_id = self.AddCommand("Show Previous Graph", "P")
         self.save_graphviz_id = self.AddCommand("save Graph to graphviz ", "S")
         self.show_UnFlatten_log_id = self.AddCommand("show UnFlatten Info log ", "")
+        self.eval_current_blk_id = self.AddCommand("eval current blk ", "")
         self.state = "cfg"
         self.back_stack = []
         self.select_block = None
@@ -150,6 +151,8 @@ class dominance_graphviewer_t(microcode_graphviewer_t):
                 self.Select(self.select_node)
         elif cmd_id == self.show_UnFlatten_log_id:
             UnFlaInfo(self._mba,self.select_block)
+        elif cmd_id == self.eval_current_blk_id:
+            eval_blk(self._mba,self.select_block)
         elif cmd_id == self.save_graphviz_id:
             file_path = kw.ask_file(True, "*.dot", "Please select a file")
             if file_path:

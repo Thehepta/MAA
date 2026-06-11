@@ -39,3 +39,6 @@ class WritableMemoryReadException(EmulationException):
 
 class UnsupportedInstructionException(EmulationException):
     pass
+
+class UnsupportedMopException(EmulationException):
+    pass

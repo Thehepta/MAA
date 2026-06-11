@@ -1,11 +1,11 @@
 import logging
 from typing import List, Tuple
 
-from d810.emulator import MicroCodeInterpreter, MicroCodeEnvironment
+from d810.emulator import SymbolicMicroCodeInterpreter,SymbolicMicroCodeEnvironment
 from d810.hexrays_formatters import format_minsn_t, format_mop_list, format_mop_t
 from d810.hexrays_helpers import append_mop_if_not_in_list, get_mop_index, CONDITIONAL_JUMP_OPCODES, extract_num_mop
 from d810.hexrays_hooks import InstructionDefUseCollector
-from d810.tracker import remove_segment_registers, MopHistory
+from d810.tracker import remove_segment_registers, SymbolicMopHistory
 from ida_hexrays import mop_t, minsn_t, mblock_t, mbl_array_t
 
 from d810.utils import NotResolvableFatherException
@@ -139,25 +139,26 @@ class GenericDispatcherInfo(object):
             return True
         return False
 
-    def emulate_dispatcher_with_father_history(self, father_history: MopHistory) -> Tuple[mblock_t, List[minsn_t]]:
-        microcode_interpreter = MicroCodeInterpreter()
-        microcode_environment = MicroCodeEnvironment()
+    def emulate_dispatcher_with_father_history(self, father_history: SymbolicMopHistory) -> Tuple[mblock_t, List[minsn_t]]:
+        microcode_interpreter = SymbolicMicroCodeInterpreter()
+        microcode_environment = SymbolicMicroCodeEnvironment()
         dispatcher_input_info = []
         # First, we setup the MicroCodeEnvironment with the state variables (self.entry_block.use_before_def_list)
         # used by the dispatcher
         for initialization_mop in self.entry_block.use_before_def_list:
             # We recover the value of each state variable from the dispatcher father
-            initialization_mop_value = father_history.get_mop_constant_value(initialization_mop)
-            if initialization_mop_value is None:
-                raise NotResolvableFatherException("Can't emulate dispatcher {0} with history {1}"
-                                                   .format(self.entry_block.serial, father_history.block_serial_path))
+            symbolic_value = father_history.get_mop_symbolic_value(initialization_mop)
+            if symbolic_value is None:
+                continue
+                # raise NotResolvableFatherException("Can't emulate dispatcher {0} with history {1}"
+                #                                    .format(self.entry_block.serial, father_history.block_serial_path))
             # We store this value in the MicroCodeEnvironment
-            microcode_environment.define(initialization_mop, initialization_mop_value)
-            dispatcher_input_info.append("{0} = {1:x}".format(format_mop_t(initialization_mop),
-                                                              initialization_mop_value))
-
-        unflat_logger.info("Executing dispatcher {0} with: {1}"
-                           .format(self.entry_block.blk.serial, ", ".join(dispatcher_input_info)))
+            microcode_environment.define(initialization_mop, symbolic_value)
+        #     dispatcher_input_info.append("{0} = {1:x}".format(format_mop_t(initialization_mop),
+        #                                                       initialization_mop_value))
+        #
+        # unflat_logger.info("Executing dispatcher {0} with: {1}"
+        #                    .format(self.entry_block.blk.serial, ", ".join(dispatcher_input_info)))
 
         # Now, we start the emulation of the code at the dispatcher entry block
         instructions_executed = []

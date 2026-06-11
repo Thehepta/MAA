@@ -1,9 +1,10 @@
 from __future__ import annotations
 import logging
-from typing import List, Union, Tuple, Dict
+from typing import List, Union, Tuple, Dict, Optional
 from ida_hexrays import *
 
-from d810.emulator import MicroCodeEnvironment, MicroCodeInterpreter
+from d810.emulator import SymbolicMicroCodeInterpreter, SymbolicMicroCodeEnvironment
+from d810.symbolic_expr import Expr, ExprInt
 from d810.cfg_utils import change_1way_block_successor, change_2way_block_conditional_successor, duplicate_block
 from d810.hexrays_hooks import InstructionDefUseCollector
 from d810.hexrays_helpers import equal_mops_ignore_size, get_mop_index, get_blk_index
@@ -26,6 +27,22 @@ from d810.hexrays_formatters import format_minsn_t, format_mop_t
 logger = logging.getLogger('D810.tracker')
 
 
+def expr_to_int(expr: Expr) -> Optional[int]:
+    """
+    Try to extract a concrete integer from a symbolic expression.
+    Returns None if the expression is symbolic (not fully resolved).
+    """
+    if expr is None:
+        return None
+    return expr.as_int()
+
+
+def mop_to_symbolic_name(mop: mop_t) -> str:
+    """Generate a symbolic name for a mop_t operand."""
+    return format_mop_t(mop)
+
+
+
 class BlockInfo(object):
     def __init__(self, blk: mblock_t, ins=None):
         self.blk = blk
@@ -39,35 +56,64 @@ class BlockInfo(object):
         return new_block_info
 
 
-class MopHistory(object):
+class SymbolicMopHistory:
+    """
+    Symbolic version of MopHistory.
+
+    Uses SymbolicMicroCodeInterpreter to evaluate microcode paths.
+    Variables that cannot be resolved remain symbolic instead of causing errors.
+    """
+
     def __init__(self, searched_mop_list: List[mop_t]):
         self.searched_mop_list = [mop_t(x) for x in searched_mop_list]
-        self.history = []
-        self.unresolved_mop_list = []
+        self.history: List[BlockInfo] = []
+        self.unresolved_mop_list: List[mop_t] = []
 
-        self._mc_interpreter = MicroCodeInterpreter()
-        self._mc_initial_environment = MicroCodeEnvironment()
-        self._mc_current_environment = self._mc_initial_environment.get_copy()
+        self._interpreter = SymbolicMicroCodeInterpreter()
+        self._initial_environment = SymbolicMicroCodeEnvironment()
+        self._current_environment = self._initial_environment.get_copy()
         self._is_dirty = True
 
-    def add_mop_initial_value(self, mop: mop_t, value: int):
+    def add_mop_initial_value(self, mop: mop_t, value: Union[int, Expr]):
+        """Define an initial value for a mop (concrete or symbolic)."""
         self._is_dirty = True
-        self._mc_initial_environment.define(mop, value)
+        if isinstance(value, int):
+            size = mop.size if mop.size > 0 else 8
+            expr_value = ExprInt(value, size)
+        else:
+            expr_value = value
+        self._initial_environment.define(mop, expr_value)
 
-    def get_copy(self) -> MopHistory:
-        new_mop_history = MopHistory(self.searched_mop_list)
-        new_mop_history.history = [x.get_copy() for x in self.history]
-        new_mop_history.unresolved_mop_list = [x for x in self.unresolved_mop_list]
-        new_mop_history._mc_initial_environment = self._mc_initial_environment.get_copy()
-        new_mop_history._mc_current_environment = new_mop_history._mc_initial_environment.get_copy()
-        return new_mop_history
+    def add_mop_initial_symbol(self, mop: mop_t, name: Optional[str] = None):
+        """
+        Define an initial symbolic variable for a mop.
+        If name is None, uses the formatted mop name.
+        """
+        self._is_dirty = True
+        size = mop.size if mop.size > 0 else 8
+        if name is None:
+            name = format_mop_t(mop)
+        self._initial_environment.define(mop, ExprId(name, size))
+
+    def get_copy(self) -> SymbolicMopHistory:
+        new_history = SymbolicMopHistory(self.searched_mop_list)
+        new_history.history = [x.get_copy() for x in self.history]
+        new_history.unresolved_mop_list = [x for x in self.unresolved_mop_list]
+        new_history._initial_environment = self._initial_environment.get_copy()
+        new_history._current_environment = new_history._initial_environment.get_copy()
+        new_history._is_dirty = True
+        return new_history
 
     def is_resolved(self) -> bool:
+        """Check if all searched mops can be evaluated (even symbolically)."""
+        # In symbolic mode, we're always "resolved" in the sense that we can
+        # always produce a value (possibly symbolic). The question is whether
+        # the value is concrete.
         if len(self.unresolved_mop_list) == 0:
             return True
         for x in self.unresolved_mop_list:
-            x_value = self._mc_initial_environment.lookup(x, raise_exception=False)
-            if x_value is None:
+            val = self._initial_environment.lookup(x, create_symbol=False)
+            if val is None:
                 return False
         return True
 
@@ -80,20 +126,20 @@ class MopHistory(object):
         return [blk.serial for blk in self.block_path]
 
     def replace_block_in_path(self, old_blk: mblock_t, new_blk: mblock_t) -> bool:
+        from d810.hexrays_helpers import get_blk_index
         blk_index = get_blk_index(old_blk, self.block_path)
         if blk_index > 0:
             self.history[blk_index].blk = new_blk
             self._is_dirty = True
             return True
-        else:
-            logger.error("replace_block_in_path: should not happen")
-            return False
+        return False
 
     def insert_block_in_path(self, blk: mblock_t, where_index: int):
         self.history = self.history[:where_index] + [BlockInfo(blk)] + self.history[where_index:]
         self._is_dirty = True
 
     def insert_ins_in_block(self, blk: mblock_t, ins: minsn_t, before=True):
+        from d810.hexrays_helpers import get_blk_index
         blk_index = get_blk_index(blk, self.block_path)
         if blk_index < 0:
             return False
@@ -105,50 +151,66 @@ class MopHistory(object):
         self._is_dirty = True
 
     def _execute_microcode(self) -> bool:
+        """Execute the recorded microcode path symbolically."""
         if not self._is_dirty:
             return True
-        formatted_mop_searched_list = "['" + "', '".join([format_mop_t(x) for x in self.searched_mop_list]) + "']"
-        logger.debug("Computing: {0} for path {1}".format(formatted_mop_searched_list, self.block_serial_path))
-        self._mc_current_environment = self._mc_initial_environment.get_copy()
+        formatted_mop_searched_list = "['" + "', '".join(
+            [format_mop_t(x) for x in self.searched_mop_list]) + "']"
+        logger.debug("Computing symbolically: {0} for path {1}".format(
+            formatted_mop_searched_list, self.block_serial_path))
+        self._current_environment = self._initial_environment.get_copy()
         for blk_info in self.history:
             for blk_ins in blk_info.ins_list:
                 logger.debug("Executing: {0}.{1}".format(blk_info.blk.serial, format_minsn_t(blk_ins)))
-                if not self._mc_interpreter.eval_instruction(blk_info.blk, blk_ins, self._mc_current_environment):
-                    self._is_dirty = False
-                    return False
+                self._interpreter.eval_instruction(blk_info.blk, blk_ins, self._current_environment)
         self._is_dirty = False
         return True
 
-    def get_mop_constant_value(self, searched_mop: mop_t) -> Union[None, int]:
-        if not self._execute_microcode():
-            return None
-        return self._mc_interpreter.eval_mop(searched_mop, self._mc_current_environment)
+    def get_mop_symbolic_value(self, searched_mop: mop_t) -> Expr:
+        """
+        Get the symbolic value of a mop after executing the path.
+        Always returns a Expr (concrete or symbolic).
+        """
+        self._execute_microcode()
+        return self._interpreter.eval_mop(searched_mop, self._current_environment)
+
+    def get_mop_constant_value(self, searched_mop: mop_t) -> Optional[int]:
+        """
+        Get the concrete value of a mop after executing the path.
+        Returns int if the value resolved to concrete, None if still symbolic.
+        Backward compatible with MopHistory.get_mop_constant_value.
+        """
+        expr = self.get_mop_symbolic_value(searched_mop)
+        return expr_to_int(expr)
 
     def print_info(self, detailed_info=False):
         formatted_mop_searched_list = [format_mop_t(x) for x in self.searched_mop_list]
-        tmp = ", ".join(["{0}={1}".format(formatted_mop, self.get_mop_constant_value(mop))
-                         for formatted_mop, mop in zip(formatted_mop_searched_list, self.searched_mop_list)])
-        logger.info("MopHistory: resolved={0}, path={1}, mops={2}"
+        tmp_parts = []
+        for formatted_mop, mop in zip(formatted_mop_searched_list, self.searched_mop_list):
+            sym_val = self.get_mop_symbolic_value(mop)
+            tmp_parts.append("{0}={1}".format(formatted_mop, sym_val))
+        tmp = ", ".join(tmp_parts)
+        logger.info("SymbolicMopHistory: resolved={0}, path={1}, mops={2}"
                     .format(self.is_resolved(), self.block_serial_path, tmp))
         if detailed_info:
             str_mop_list = "['" + "', '".join(formatted_mop_searched_list) + "']"
             if len(self.block_path) == 0:
-                logger.info("MopHistory for {0} => nothing".format(str_mop_list))
+                logger.info("SymbolicMopHistory for {0} => nothing".format(str_mop_list))
                 return
-
             end_blk = self.block_path[-1]
             end_ins = end_blk.tail
             if self.history[-1].ins_list:
                 end_ins = self.history[-1].ins_list[-1]
-
             if end_ins:
-                logger.info("MopHistory for {0} {1}.{2}".format(str_mop_list, end_blk.serial, format_minsn_t(end_ins)))
+                logger.info("SymbolicMopHistory for {0} {1}.{2}".format(
+                    str_mop_list, end_blk.serial, format_minsn_t(end_ins)))
             else:
-                logger.info("MopHistory for '{0}' {1}.tail".format(str_mop_list, end_blk.serial))
+                logger.info("SymbolicMopHistory for '{0}' {1}.tail".format(str_mop_list, end_blk.serial))
             logger.info("  path {0}".format(self.block_serial_path))
             for blk_info in self.history:
                 for blk_ins in blk_info.ins_list:
                     logger.info("   {0}.{1}".format(blk_info.blk.serial, format_minsn_t(blk_ins)))
+
 
 
 def get_standard_and_memory_mop_lists(mop_in: mop_t) -> Tuple[List[mop_t], List[mop_t]]:
@@ -180,7 +242,7 @@ class MopTracker(object):
             a, b = get_standard_and_memory_mop_lists(searched_mop)
             self._unresolved_mops += a
             self._memory_unresolved_mops += b
-        self.history = MopHistory(searched_mop_list)
+        self.history = SymbolicMopHistory(searched_mop_list)
         self.max_nb_block = max_nb_block
         self.max_path = max_path
         self.avoid_list = []
@@ -206,7 +268,7 @@ class MopTracker(object):
         return new_mop_tracker
 
     def search_backward(self, blk: mblock_t, ins: minsn_t, avoid_list=None, must_use_pred=None,
-                        stop_at_first_duplication=False) -> List[MopHistory]:
+                        stop_at_first_duplication=False) -> List[SymbolicMopHistory]:
         logger.debug("Searching backward (reg): {0}".format([format_mop_t(x) for x in self._unresolved_mops]))
         logger.debug("Searching backward (mem): {0}".format([format_mop_t(x) for x in self._memory_unresolved_mops]))
         logger.debug("Searching backward (cst): {0}"
@@ -371,8 +433,8 @@ class MopTracker(object):
         return None
 
 
-def get_block_with_multiple_predecessors(var_histories: List[MopHistory]) -> Tuple[Union[None, mblock_t],
-                                                                                   Union[None, Dict[int, List[MopHistory]]]]:
+def get_block_with_multiple_predecessors(var_histories: List[SymbolicMopHistory]) -> Tuple[Union[None, mblock_t],
+                                                                                   Union[None, Dict[int, List[SymbolicMopHistory]]]]:
     for i, var_history in enumerate(var_histories):
         pred_blk = var_history.block_path[0]
         for block in var_history.block_path[1:]:
@@ -390,7 +452,7 @@ def get_block_with_multiple_predecessors(var_histories: List[MopHistory]) -> Tup
     return None, None
 
 
-def try_to_duplicate_one_block(var_histories: List[MopHistory]) -> Tuple[int, int]:
+def try_to_duplicate_one_block(var_histories: List[SymbolicMopHistory]) -> Tuple[int, int]:
     nb_duplication = 0
     nb_change = 0
     if (len(var_histories) == 0) or (len(var_histories[0].block_path) == 0):
@@ -443,7 +505,7 @@ def try_to_duplicate_one_block(var_histories: List[MopHistory]) -> Tuple[int, in
     return nb_duplication, nb_change
 
 
-def duplicate_histories(var_histories: List[MopHistory], max_nb_pass: int = 10) -> Tuple[int, int]:
+def duplicate_histories(var_histories: List[SymbolicMopHistory], max_nb_pass: int = 10) -> Tuple[int, int]:
     cur_pass = 0
     total_nb_duplication = 0
     total_nb_change = 0

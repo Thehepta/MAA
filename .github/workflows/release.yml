@@ -30,6 +30,7 @@ jobs:
           rsync -av \
             --exclude='.git/' \
             --exclude='.github/' \
+            --exclude='test/' \
             ./ release/
 
       - name: Update ida-plugin.json version (in release only)
