@@ -368,6 +368,12 @@ def ensure_last_block_is_goto(mba: mbl_array_t) -> int:
 
 def duplicate_block(block_to_duplicate: mblock_t) -> Tuple[mblock_t, mblock_t]:
     mba = block_to_duplicate.mba
+    end_blk = mba.get_mblock(mba.qty - 1)
+    pre_end_blk_serial = end_blk.predset[0]
+    pre_end_blk_fix = False
+    if pre_end_blk_serial+1 == end_blk.serial:
+        pre_end_blk_fix = True
+
     duplicated_blk = mba.copy_block(block_to_duplicate, mba.qty - 1)
     helper_logger.debug("  Duplicated {0} -> {1}".format(block_to_duplicate.serial, duplicated_blk.serial))
     duplicated_blk_default = None
@@ -379,7 +385,7 @@ def duplicate_block(block_to_duplicate: mblock_t) -> Tuple[mblock_t, mblock_t]:
                             .format(block_to_duplicate.serial, duplicated_blk_default.serial, duplicated_blk.serial,
                                     block_to_duplicate_default_successor.serial))
     elif duplicated_blk.nsucc() == 1:
-        helper_logger.debug("  Making {0} goto {1}".format(duplicated_blk.serial, block_to_duplicate.succset[0]))
+        helper_logger.debug("Making {0} goto {1}".format(duplicated_blk.serial, block_to_duplicate.succset[0]))
         change_1way_block_successor(duplicated_blk, block_to_duplicate.succset[0])
     elif duplicated_blk.nsucc() == 0:
         helper_logger.debug("  Duplicated block {0} has no successor => Nothing to do".format(duplicated_blk.serial))
@@ -387,15 +393,9 @@ def duplicate_block(block_to_duplicate: mblock_t) -> Tuple[mblock_t, mblock_t]:
         # 修复处理前驱
     # 在测试中发现ida的这个代码复制逻辑没有处理前驱，开始我并没有想到，后来调试中我发现，microcode的这个代码块cfg,结束块必须唯一最后一个位置，不能在结束块
     # 后面添加块，只能在前面添加，所以，复制了一个块，是在结束块的前面，这就导致，如果结束块的前驱是直接顺序执行到结束块的，在复制新块以后变成了执行到新的块，逻辑发生了改变
-    duplicated_blk_pre = duplicated_blk.serial - 1
-    duplicated_pre_blk = mba.get_mblock(duplicated_blk_pre)
-    if duplicated_pre_blk.tail is not None:
-        if duplicated_pre_blk.tail.opcode == m_goto:
-            print("{0} is_simple_goto_block ".format(duplicated_pre_blk.serial))
-        else:
-            print("change_1way_block_successor {0} -> {1}".format(duplicated_pre_blk.serial, duplicated_blk.serial + 1),
-                  change_1way_block_successor(duplicated_pre_blk, duplicated_blk.serial + 1))
-
+    if pre_end_blk_fix is True:
+        pre_end_blk = mba.get_mblock(pre_end_blk_serial)
+        change_1way_block_successor(pre_end_blk, end_blk.serial)
 
     return duplicated_blk, duplicated_blk_default
 
