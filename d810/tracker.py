@@ -4,7 +4,7 @@ from typing import List, Union, Tuple, Dict, Optional
 from ida_hexrays import *
 
 from d810.emulator import SymbolicMicroCodeInterpreter, SymbolicMicroCodeEnvironment
-from d810.symbolic_expr import Expr, ExprInt
+from d810.symbolic_expr import Expr, ExprInt, ExprId
 from d810.cfg_utils import change_1way_block_successor, change_2way_block_conditional_successor, duplicate_block
 from d810.hexrays_hooks import InstructionDefUseCollector
 from d810.hexrays_helpers import equal_mops_ignore_size, get_mop_index, get_blk_index

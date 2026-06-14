@@ -29,7 +29,7 @@ from d810.symbolic_expr import (
     Expr, ExprInt, ExprId, ExprMem, ExprOp,
     ExprSlice, ExprCompose, ExprCond, _size_mask
 )
-from d810.symbolic_simplifier import simplify
+from d810.symbolic_simplifier import simplify, unsigned_to_signed
 from d810.hexrays_helpers import equal_mops_ignore_size, get_mop_index, AND_TABLE, CONTROL_FLOW_OPCODES, \
     CONDITIONAL_JUMP_OPCODES
 from d810.hexrays_formatters import format_minsn_t, format_mop_t, mop_type_to_string, opcode_to_string
@@ -438,26 +438,30 @@ class SymbolicMicroCodeInterpreter:
         # Evaluate the condition
         if ins.opcode == m_jcnd:
             cond_expr = self.eval(ins.l, environment)
+        elif ins.opcode == m_jnz:
+            cond_expr = self.eval(ins.l, environment) != self.eval(ins.r, environment)
+        elif ins.opcode == m_jz:
+            cond_expr = self.eval(ins.l, environment) == self.eval(ins.r, environment)
+        elif ins.opcode == m_jae:
+            cond_expr = self.eval(ins.l, environment) >= self.eval(ins.r, environment)
+        elif ins.opcode == m_jb:
+            cond_expr = self.eval(ins.l, environment) < self.eval(ins.r, environment)
+        elif ins.opcode == m_ja:
+            cond_expr = self.eval(ins.l, environment) > self.eval(ins.r, environment)
+        elif ins.opcode == m_jbe:
+            cond_expr = self.eval(ins.l, environment) <= self.eval(ins.r, environment)
+        elif ins.opcode == m_jg:
+            cond_expr =  unsigned_to_signed(self.eval(ins.l, environment).as_int(),ins.l.size) > unsigned_to_signed(self.eval(ins.r, environment).as_int(),ins.r.size)
+        elif ins.opcode == m_jge:
+            cond_expr =  unsigned_to_signed(self.eval(ins.l, environment).as_int(),ins.l.size) >= unsigned_to_signed(self.eval(ins.r, environment).as_int(),ins.r.size)
+        elif ins.opcode == m_jl:
+            cond_expr =  unsigned_to_signed(self.eval(ins.l, environment).as_int(),ins.l.size) < unsigned_to_signed(self.eval(ins.r, environment).as_int(),ins.r.size)
+        elif ins.opcode == m_jle:
+            cond_expr =  unsigned_to_signed(self.eval(ins.l, environment).as_int(),ins.l.size) <= unsigned_to_signed(self.eval(ins.r, environment).as_int(),ins.r.size)
         else:
-            left = self.eval(ins.l, environment)
-            right = self.eval(ins.r, environment)
-            # Build comparison expression
-            cmp_op = {
-                m_jnz: '!=', m_jz: '==',
-                m_jae: '>=u', m_jb: '<u', m_ja: '>u', m_jbe: '<=u',
-                m_jg: '>s', m_jge: '>=s', m_jl: '<s', m_jle: '<=s',
-            }.get(ins.opcode)
-            if cmp_op is None:
-                return None
-            cond_expr = simplify(ExprOp(cmp_op, [left, right], 1))
+            raise EmulationException("Unhandled conditional jump:  '{0}'".format(format_minsn_t(ins)))
 
-        # Only resolve if condition is concrete
-        if not cond_expr.is_int():
-            symb_log.debug("Conditional jump is symbolic, cannot resolve: {}".format(cond_expr))
-            return None
-
-        jump_taken = cond_expr.as_int() != 0
-        return self._get_blk_serial(ins.d) if jump_taken else direct_child_serial
+        return self._get_blk_serial(ins.d) if cond_expr else direct_child_serial
 
     def _eval_control_flow_instruction(self, ins: minsn_t, environment: SymbolicMicroCodeEnvironment) -> bool:
         if ins.opcode not in CONTROL_FLOW_OPCODES:

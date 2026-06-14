@@ -244,8 +244,8 @@ class UnflattenerFakeJump():
             self.dispatcher_list.append(disp_info)
 
     def remove_flattening(self) -> int:
-        import pydevd_pycharm
-        pydevd_pycharm.settrace('localhost', port=31235, stdoutToServer=True, stderrToServer=True)
+        # import pydevd_pycharm
+        # pydevd_pycharm.settrace('localhost', port=31235, stdoutToServer=True, stderrToServer=True)
         total_nb_change = 0
         # 每有一个分发器调用一次
         for dispatcher_info in self.dispatcher_list:
@@ -358,15 +358,15 @@ if __name__ == '__main__':  # 也可以直接在脚本里执行
     hr.clear_cached_cfuncs()
 
     # 不在反编译阶段，而是通过ida获取当前函数，然后直接将当前函数生成microcode，然后对microcode进行分析和修复，输出流程图，不影响ida的反汇编
-    # try:
-    #     optimizer = UnflattenerFakeJump()
-    #     optimizer.start()
-    # except Exception as e:
-    #     logging.exception(e)
-
-    # 在反编译的优化中生效
     try:
-        optimizer = blkOPt()
-        optimizer.install()
+        optimizer = UnflattenerFakeJump()
+        optimizer.start()
     except Exception as e:
         logging.exception(e)
+
+    # 在反编译的优化中生效
+    # try:
+    #     optimizer = blkOPt()
+    #     optimizer.install()
+    # except Exception as e:
+    #     logging.exception(e)

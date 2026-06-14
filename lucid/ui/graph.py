@@ -6,7 +6,8 @@ from ida_hexrays import mblock_t, mop_t, optblock_t, minsn_visitor_t, mbl_array_
 import ida_lines
 import re
 
-from lucid.util.D810Utils import UnFlaInfo, eval_blk
+from lucid.ui.VariableManagerChooser import PureModalPatchChooser
+from lucid.util.D810Utils import UnFlaInfo, eval_blk,get_block_top_level_inputs
 
 
 def graphviz(mba,output_path):
@@ -105,10 +106,11 @@ class dominance_graphviewer_t(microcode_graphviewer_t):
 
     def __init__(self, *args):
         microcode_graphviewer_t.__init__(self, *args)
-        self.dom_command_id = self.AddCommand("Show Dominance Graph", "D")
-        self.full_command_id = self.AddCommand("Show Full Graph", "F")
-        self.back_command_id = self.AddCommand("Show Previous Graph", "P")
-        self.save_graphviz_id = self.AddCommand("save Graph to graphviz ", "S")
+        self.dom_command_id = self.AddCommand("Show Dominance Graph", "")
+        self.full_command_id = self.AddCommand("Show Full Graph", "")
+        self.back_command_id = self.AddCommand("Show Previous Graph", "")
+        self.save_graphviz_id = self.AddCommand("save Graph to graphviz ", "")
+        self.jump_blk_id = self.AddCommand("jump to target blk", "")
         self.show_UnFlatten_log_id = self.AddCommand("show UnFlatten Info log ", "")
         self.eval_current_blk_id = self.AddCommand("eval current blk ", "")
         self.state = "cfg"
@@ -152,7 +154,15 @@ class dominance_graphviewer_t(microcode_graphviewer_t):
         elif cmd_id == self.show_UnFlatten_log_id:
             UnFlaInfo(self._mba,self.select_block)
         elif cmd_id == self.eval_current_blk_id:
-            eval_blk(self._mba,self.select_block)
+            title_msg = "eval设置变量 (双击改值 / 不支持删除 / 确定即可开始执行)"
+            my_initial_variables = get_block_top_level_inputs(self.select_block)
+            chooser = PureModalPatchChooser(title_msg, my_initial_variables)
+            status_code = chooser.Show(modal=True)
+            if 0 == status_code:
+                environment_value = chooser.get_results()
+                eval_blk(self._mba,self.select_block,environment_value)
+            else:
+                print("chooser return :",status_code)
         elif cmd_id == self.save_graphviz_id:
             file_path = kw.ask_file(True, "*.dot", "Please select a file")
             if file_path:
@@ -161,9 +171,27 @@ class dominance_graphviewer_t(microcode_graphviewer_t):
             else:
                 kw.msg("No file selected\n")
             print("save_graphviz_id")
+        elif cmd_id == self.jump_blk_id:
+            block_num = kw.ask_long(0, "请输入要跳转的块号:")
+            if block_num is not None and block_num >= 0:
+                if self._mba.qty - 1 < block_num:
+                    # print("not found block:", block_num)
+                    return
+                node = self._mba.get_mblock(block_num)
+                if isinstance(node, hr.mblock_t):
+                    self.Select(block_num)
 
     def OnClick(self, node_id):
         self.select_node = node_id
+
+    def OnKeydown(self, vkey, shift):
+        """
+        User pressed a key
+        :param vkey: Virtual key code
+        :param shift: Shift flag
+        :returns: Boolean. True if you handled the event
+        """
+        print("OnKeydown, vk=%d shift=%d" % (vkey, shift))
 
     def compute_dominates(self):
         nodes = set(list(range(self._mba.qty)))

@@ -88,7 +88,7 @@ class D810OllvmDispatcherInfo(GenericDispatcherInfo):
             child_info.parse()
             if not self.is_part_of_dispatcher(child_info):
                 self.dispatcher_exit_blocks.append(child_info)
-                print("self.dispatcher_exit_blocks: {0}".format(child_serial))
+                # print("self.dispatcher_exit_blocks: {0}".format(child_serial))
             else:
                 self.dispatcher_internal_blocks.append(child_info)
                 if child_info.comparison_value is not None:
@@ -115,12 +115,30 @@ class D810OllvmDispatcherInfo(GenericDispatcherInfo):
 
 
 
-def UnFlaInfo(mba, dispatch_block):
-    import pydevd_pycharm
-    pydevd_pycharm.settrace('localhost', port=31235, stdoutToServer=True, stderrToServer=True)
-    print("dispatch_block serial:", hex(dispatch_block.serial))
-    blk_preset_list = [x for x in dispatch_block.predset]
-    print("dispatch_block father list:", blk_preset_list)
+def UnFlaInfo(mba):
+    # import pydevd_pycharm
+    # pydevd_pycharm.settrace('localhost', port=31235, stdoutToServer=True, stderrToServer=True)
+    # print("dispatch_block serial:", hex(dispatch_block.serial))
+    # blk_preset_list = [x for x in dispatch_block.predset]
+    # print("dispatch_block father list:", blk_preset_list)
+
+    dispatch_npred = -1
+    dispatch_block = None
+    for blk_idx in range(mba.qty):
+        blk = mba.get_mblock(blk_idx)
+        npred = blk.npred()
+        if dispatch_npred < npred:
+            dispatch_npred = npred
+            dispatch_block = blk
+    print("dispatch_block:",dispatch_block.serial)
+
+    dispatch_info = D810OllvmDispatcherInfo(mba)
+    if not dispatch_info.explore(dispatch_block):
+        print("set dispatch failed, dispatch_info->explore is False")
+        return
+
+    dispatcher_internal_blocks = [x.serial for x in dispatch_info.dispatcher_internal_blocks]
+    print(dispatcher_internal_blocks)
 
     def dfs(current_node, target_node, path, paths, visited):
         path.append(current_node.serial)
@@ -137,41 +155,38 @@ def UnFlaInfo(mba, dispatch_block):
 
     paths = []
 
-    dfs(dispatch_block, dispatch_block, [], paths, set())
+    # dfs(dispatch_block, dispatch_block, [], paths, set())
+    #
 
-    dispatch_info = D810OllvmDispatcherInfo(mba)
-    if not dispatch_info.explore(dispatch_block):
-        print("set dispatch failed, dispatch_info->explore is False")
-        return
-
-    for dispatcher_father_serial in dispatch_block.predset:
-        father_tracker = MopTracker(dispatch_info.entry_block.use_before_def_list, max_nb_block=100, max_path=100)
-        father_tracker.reset()
-        dispatcher_father_block = mba.get_mblock(dispatcher_father_serial)
-        print("MopTracker block:{0}".format(dispatcher_father_serial))
-        father_histories = father_tracker.search_backward(dispatcher_father_block, None)
-        if len(father_histories) > 1:
-            print("father_block:{0} is  multiple branches".format(dispatcher_father_serial))
-        try:
-            # 还原,分发器到分发器的前驱这条代码路径的混淆
-            for cur_history in father_histories:
-                print("emulate_dispatcher:{0}".format( cur_history))
-                target_blk, disp_ins = dispatch_info.emulate_dispatcher_with_father_history(cur_history)
-                if target_blk is not None:
-                    print("Unflattening graph: Making {0} goto {1}".format(dispatcher_father_serial, target_blk.serial))
-        except NotResolvableFatherException as e:
-            print("NotResolvableFatherException")
-
-        father_histories_cst = get_all_possibles_values(father_histories, dispatch_info.entry_block.use_before_def_list,
-                                                        verbose=False)
-        # Const_Hex_str = ""
-        # for list1 in father_histories_cst:
-        #     for print_const in list1:
-        #         Const_Hex_str = Const_Hex_str + hex(print_const) + ":"
-        print("father_block:{0}:{1}".format(dispatcher_father_serial, father_histories_cst))
-
-    for path in paths:
-        print("path:", path)
+    #
+    # for dispatcher_father_serial in dispatch_block.predset:
+    #     father_tracker = MopTracker(dispatch_info.entry_block.use_before_def_list, max_nb_block=100, max_path=100)
+    #     father_tracker.reset()
+    #     dispatcher_father_block = mba.get_mblock(dispatcher_father_serial)
+    #     print("MopTracker block:{0}".format(dispatcher_father_serial))
+    #     father_histories = father_tracker.search_backward(dispatcher_father_block, None)
+    #     if len(father_histories) > 1:
+    #         print("father_block:{0} is  multiple branches".format(dispatcher_father_serial))
+    #     try:
+    #         # 还原,分发器到分发器的前驱这条代码路径的混淆
+    #         for cur_history in father_histories:
+    #             print("emulate_dispatcher:{0}".format( cur_history))
+    #             target_blk, disp_ins = dispatch_info.emulate_dispatcher_with_father_history(cur_history)
+    #             if target_blk is not None:
+    #                 print("Unflattening graph: Making {0} goto {1}".format(dispatcher_father_serial, target_blk.serial))
+    #     except NotResolvableFatherException as e:
+    #         print("NotResolvableFatherException")
+    #
+    #     father_histories_cst = get_all_possibles_values(father_histories, dispatch_info.entry_block.use_before_def_list,
+    #                                                     verbose=False)
+    #     # Const_Hex_str = ""
+    #     # for list1 in father_histories_cst:
+    #     #     for print_const in list1:
+    #     #         Const_Hex_str = Const_Hex_str + hex(print_const) + ":"
+    #     print("father_block:{0}:{1}".format(dispatcher_father_serial, father_histories_cst))
+    #
+    # for path in paths:
+    #     print("path:", path)
 
 
 # 将函数转变成 ida的mba，然后进行解混淆，并显示解混淆后的cfg
@@ -208,10 +223,9 @@ def start():
     hf = hr.hexrays_failure_t()
     ml = hr.mlist_t()
     mba = hr.gen_microcode(mbr, hf, ml, hr.DECOMP_WARNINGS, mmat)
-    dispatcher_block = mba.get_mblock(5)
 
     # 使用D810的api解FLA混淆
-    UnFlaInfo(mba, dispatcher_block)
+    UnFlaInfo(mba)
 
     # 将mba 的cfg显示出来
     # show_microcode_graph(mba, fn_name)
