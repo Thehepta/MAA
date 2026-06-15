@@ -6,6 +6,7 @@ from ida_hexrays import mblock_t, mop_t, optblock_t, minsn_visitor_t, mbl_array_
 import ida_lines
 import re
 
+from PySide6 import QtWidgets
 from lucid.ui.VariableManagerChooser import PureModalPatchChooser
 from lucid.util.D810Utils import UnFlaInfo, eval_blk,get_block_top_level_inputs
 
@@ -156,13 +157,12 @@ class dominance_graphviewer_t(microcode_graphviewer_t):
         elif cmd_id == self.eval_current_blk_id:
             title_msg = "eval设置变量 (双击改值 / 不支持删除 / 确定即可开始执行)"
             my_initial_variables = get_block_top_level_inputs(self.select_block)
-            chooser = PureModalPatchChooser(title_msg, my_initial_variables)
-            status_code = chooser.Show(modal=True)
-            if 0 == status_code:
-                environment_value = chooser.get_results()
+            dialog = PureModalPatchChooser(title_msg, my_initial_variables)
+            if QtWidgets.QDialog.DialogCode.Accepted == dialog.exec():
+                environment_value = dialog.get_results()
                 eval_blk(self._mba,self.select_block,environment_value)
             else:
-                print("chooser return :",status_code)
+                print("dialog cancelled")
         elif cmd_id == self.save_graphviz_id:
             file_path = kw.ask_file(True, "*.dot", "Please select a file")
             if file_path:

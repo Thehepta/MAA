@@ -1,4 +1,5 @@
 import ida_kernwin
+from PySide6 import QtWidgets, QtCore, QtGui
 
 
 class MopResultWrapper:
@@ -7,7 +8,7 @@ class MopResultWrapper:
     """
     def __init__(self, variables_list, mop_mapping):
         self.data = {}
-        for name, value,numeral ,size in variables_list:
+        for name, value, numeral, size in variables_list:
             mop_obj = mop_mapping.get(name)
             self.data[name] = {
                 "mop": mop_obj,    # 这里存的是货真价实的 mop_t 对象（或者是 None）
@@ -31,120 +32,160 @@ class MopResultWrapper:
             return self.data[name]["value"]
         return None
 
-class PureModalPatchChooser(ida_kernwin.Choose):
-    def __init__(self, title, top_inputs_list):
 
+class PureModalPatchChooser(QtWidgets.QDialog):
+    """
+    基于 PySide6 QDialog 的变量编辑器，替代 IDA Choose。
+    解决问题：
+      - CH_MODAL Choose 双击一行后窗口直接关闭
+      - Esc 键无法拦截，直接退出
+    现在完全掌控窗口生命周期：
+      - 双击编辑值后窗口保持打开，可连续修改
+      - Esc 键仅清除选中/关闭输入框，不会关闭整个窗口
+      - 点击「确定」关闭并返回结果，点击「取消」放弃修改
+    """
 
-        columns = [
-            ["变量名称", 40],
-            ["当前值/修补值", 40],
-            ["进制", 10],
-            ["宽度", 10]
-        ]
-        # 🌟 传入 CH_MODAL 标志
-        ida_kernwin.Choose.__init__(
-            self,
-            title,
-            columns,
-            flags=ida_kernwin.Choose.CH_MODAL | ida_kernwin.CH_KEEP |     ida_kernwin.Choose.CH_QFLT
-        )
+    COL_NAME = 0
+    COL_VALUE = 1
+    COL_BASE = 2
+    COL_SIZE = 3
+
+    def __init__(self, title, top_inputs_list, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle(title)
+        self.setMinimumWidth(640)
+        self.setMinimumHeight(320)
+
         self.mop_mapping = {}
-        self.variables_list = []
+        self._raw_rows = []  # [[name, value, base, size], ...]
 
+        # ---- 构建 mop_mapping ----
         for op in top_inputs_list:
-            # 提取干净的名称作为展示和 Key
             clean_name = op.dstr()
-
-            # 处理重名情况（比如不同指令里的同名实体，防止字典覆盖）
             base_name = clean_name
             counter = 1
             while clean_name in self.mop_mapping:
                 clean_name = f"{base_name}_{counter}"
                 counter += 1
-
             self.mop_mapping[clean_name] = op
-            # 默认初始值给 "0"，你可以根据需求改为其他的默认占位符
-            self.variables_list.append([clean_name, "None","16",str(op.size)])
+            self._raw_rows.append([clean_name, "None", "16", str(op.size)])
 
+        # ---- 表格 ----
+        self.table = QtWidgets.QTableWidget(len(self._raw_rows), 4, self)
+        self.table.setHorizontalHeaderLabels(["变量名称", "当前值/修补值", "进制", "宽度"])
+        self.table.horizontalHeader().setStretchLastSection(True)
+        self.table.horizontalHeader().setSectionResizeMode(
+            self.COL_NAME, QtWidgets.QHeaderView.ResizeMode.Stretch
+        )
+        self.table.horizontalHeader().setSectionResizeMode(
+            self.COL_VALUE, QtWidgets.QHeaderView.ResizeMode.Stretch
+        )
+        self.table.setSelectionBehavior(QtWidgets.QAbstractItemView.SelectionBehavior.SelectRows)
+        self.table.setEditTriggers(QtWidgets.QAbstractItemView.EditTrigger.NoEditTriggers)
+        self.table.cellDoubleClicked.connect(self._on_cell_double_clicked)
 
+        # 填充数据
+        for row, data in enumerate(self._raw_rows):
+            for col, val in enumerate(data):
+                item = QtWidgets.QTableWidgetItem(str(val))
+                # 变量名称、宽度列不可编辑（由双击逻辑处理值列）
+                item.setTextAlignment(QtCore.Qt.AlignmentFlag.AlignCenter)
+                self.table.setItem(row, col, item)
 
-    def OnCommand(self, n, cmd_id):
-        """
-        当用户执行自定义命令（包括按下绑定的快捷键）时回调
-        """
-        print("[*] 检测到您按下了 Esc 键！已被成功拦截，大窗口绝不闪退。")
+        # ---- 进制下拉代理（双击进制列可切 10/16） ----
+        self._base_delegate = _BaseComboDelegate(self)
+        self.table.setItemDelegateForColumn(self.COL_BASE, self._base_delegate)
 
-        # if cmd_id == self.cmd_esc_id:
-        #     # 成功拦截！弹一个警告提示，并且什么都不做（不调用 self.Close()）
-        #     print("[*] 检测到您按下了 Esc 键！已被成功拦截，大窗口绝不闪退。")
-        #     ida_kernwin.msg(
-        #         "请注意：为了防止修补数据丢失，已禁用 Esc 键退出！\n如果确认修补完成，请点右上角的 [X] 按钮关闭并保存。\n")
-        #     return
-        #
-        #     # 其它命令交给底层
-        # ida_kernwin.Choose.OnCommand(self, n, cmd_id)
+        # ---- 按钮 ----
+        btn_box = QtWidgets.QDialogButtonBox(
+            QtWidgets.QDialogButtonBox.StandardButton.Ok
+            | QtWidgets.QDialogButtonBox.StandardButton.Cancel
+        )
+        btn_box.accepted.connect(self.accept)
+        btn_box.rejected.connect(self.reject)
 
-    def OnGetSize(self):
-        return len(self.variables_list)
+        # ---- 布局 ----
+        layout = QtWidgets.QVBoxLayout(self)
+        layout.addWidget(self.table)
+        layout.addWidget(btn_box)
+        self.setLayout(layout)
 
-    def OnGetLine(self, n):
-        return self.variables_list[n]
+    # ------------------------------------------------------------------
+    # 拦截 Esc：不关闭窗口，仅清除表格选中
+    # ------------------------------------------------------------------
+    def keyPressEvent(self, event):
+        if event.key() == QtCore.Qt.Key.Key_Escape:
+            self.table.clearSelection()
+            return
+        super().keyPressEvent(event)
 
-    # ----------------------------------------------------
-    # 动作 1：连续双击修改。返回 [1, n] 原地强刷，大窗口绝对不退！
-    # ----------------------------------------------------
-    def OnSelectLine(self, n):
-        """双击处理：允许用户修改‘值’，修改完后直接根据当前行的进制生成 int"""
-        if 0 <= n < len(self.variables_list):
-            var_name = self.variables_list[n][0]
-            current_val = self.variables_list[n][1]
-            current_base = self.variables_list[n][2]  # 🌟 这一列本身就存了 "10" 或 "16"
+    # ------------------------------------------------------------------
+    # 双击编辑值
+    # ------------------------------------------------------------------
+    def _on_cell_double_clicked(self, row, col):
+        if col != self.COL_VALUE:
+            return
+        var_name_item = self.table.item(row, self.COL_NAME)
+        value_item = self.table.item(row, self.COL_VALUE)
+        base_item = self.table.item(row, self.COL_BASE)
+        if not (var_name_item and value_item and base_item):
+            return
 
-            # 1. 弹出输入框让用户改值
-            new_val = ida_kernwin.ask_str(current_val, 0, f"请输入 MOP [{var_name}] 的新修补值:")
-            if new_val is not None:
-                new_val_striped = new_val.strip()
-                if new_val_striped == "None":
-                    return [ida_kernwin.Choose.SELECTION_CHANGED, n]
-                try:
-                    # current_base 是字符串 "16" 或 "10"，int() 接收 int 类型，所以转一下
-                    actual_int = int(new_val_striped, int(current_base))
-                    self.variables_list[n][1] = actual_int
-                    # 🌟 核心：返回已经改变，行号给 n。配合 CH_KEEP 就会稳定重绘而不闪退
-                    return [ida_kernwin.Choose.ALL_CHANGED, n]
-                except ValueError:
-                    # 保底机制：如果用户作死在 10 进制下列输入了字母，或者输入错误
-                    ida_kernwin.warning(
-                        f"输入数据异常！\n\n"
-                        f"您输入的值 '{new_val_striped}' 无法被识别为有效的16进制数字。\n"
-                    )
-                return [ida_kernwin.Choose.NOTHING_CHANGED, n]
+        var_name = var_name_item.text()
+        current_val = value_item.text()
+        current_base = int(base_item.text())
 
-        return [ida_kernwin.Choose.SELECTION_CHANGED, n]
+        new_val, ok = QtWidgets.QInputDialog.getText(
+            self,
+            f"修改 [{var_name}]",
+            f"请输入 MOP [{var_name}] 的新修补值 (当前进制={current_base}):",
+            text=str(current_val),
+        )
+        if not ok:
+            # 用户按了取消 / Esc，仅关闭输入框，主窗口不动
+            return
+        new_val_stripped = new_val.strip()
+        if new_val_stripped == "None":
+            value_item.setText("None")
+            return
+        try:
+            actual_int = int(new_val_stripped, current_base)
+            value_item.setText(str(actual_int))
+        except ValueError:
+            QtWidgets.QMessageBox.warning(
+                self,
+                "输入错误",
+                f"值 '{new_val_stripped}' 无法按 {current_base} 进制解析！",
+            )
 
-    def OnDeleteLine(self, n):
-        return [ida_kernwin.Choose.NOTHING_CHANGED, n]
-    # ----------------------------------------------------
-    # 动作 2：按键盘【Insert】键（或右键 Insert）-> 手动添加新变量
-    # ----------------------------------------------------
-    # def OnInsertLine(self, n):
-    #     name = ida_kernwin.ask_str("", 0, "请输入要额外添加的变量名称:")
-    #     if name and name.strip():
-    #         if any(item[0] == name.strip() for item in self.variables_list):
-    #             print(f"[-] 错误：变量 {name} 已存在！")
-    #             return [0, n]
-    #
-    #         val = ida_kernwin.ask_str("0", 0, f"请为新变量 [{name}] 设置初始值:")
-    #         val = val if val is not None else "0"
-    #
-    #         self.variables_list.append([name.strip(), val])
-    #         print(f"[+] 手动成功添加新变量: {name} = {val}")
-    #         return [1, len(self.variables_list) - 1]
-    #     return [0, n]
-
-    # ----------------------------------------------------
-    # 动作 3：按键盘【Delete】键（或右键 Delete）-> 删除变量
-    # ----------------------------------------------------
+    # ------------------------------------------------------------------
+    # 返回结果，API 与旧版保持一致
+    # ------------------------------------------------------------------
     def get_results(self):
-        # 🌟 实例化包装类返回，彻底告别 TypeError 报错
-        return MopResultWrapper(self.variables_list, self.mop_mapping)
+        variables_list = []
+        for row in range(self.table.rowCount()):
+            name = self.table.item(row, self.COL_NAME).text()
+            value = self.table.item(row, self.COL_VALUE).text()
+            numeral = self.table.item(row, self.COL_BASE).text()
+            size = self.table.item(row, self.COL_SIZE).text()
+            variables_list.append([name, value, numeral, size])
+        return MopResultWrapper(variables_list, self.mop_mapping)
+
+
+class _BaseComboDelegate(QtWidgets.QStyledItemDelegate):
+    """进制列的下拉代理，双击可在 10 / 16 之间切换"""
+    BASES = ["10", "16"]
+
+    def createEditor(self, parent, option, index):
+        combo = QtWidgets.QComboBox(parent)
+        combo.addItems(self.BASES)
+        current = index.data(QtCore.Qt.ItemDataRole.DisplayRole)
+        idx = self.BASES.index(current) if current in self.BASES else 0
+        combo.setCurrentIndex(idx)
+        return combo
+
+    def setModelData(self, editor, model, index):
+        model.setData(index, editor.currentText(), QtCore.Qt.ItemDataRole.EditRole)
+
+    def updateEditorGeometry(self, editor, option, index):
+        editor.setGeometry(option.rect)
