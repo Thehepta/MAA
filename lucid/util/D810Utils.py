@@ -18,11 +18,12 @@ from ida_idp import reg_info_t, parse_reg_name
 
 symb_log.setLevel(logging.DEBUG)
 
-from d810.tracker import  MopTracker
+from d810.tracker import MopTracker
 from d810.utils import NotResolvableFatherException, get_all_possibles_values
 
 FLATTENING_JUMP_OPCODES = [hr.m_jnz, hr.m_jz, hr.m_jae, hr.m_jb, hr.m_ja, hr.m_jbe, hr.m_jg, hr.m_jge, hr.m_jl,
                            hr.m_jle]
+
 
 class D810OllvmDispatcherInfo(GenericDispatcherInfo):
 
@@ -111,16 +112,15 @@ class D810OllvmDispatcherInfo(GenericDispatcherInfo):
         return dispatcher_blocks_with_external_father
 
 
-def UnFlaInfo(mba,dispatch_block):
-
+def UnFlaInfo(mba, dispatch_block):
     # import pydevd_pycharm
     # pydevd_pycharm.settrace('localhost', port=31235, stdoutToServer=True, stderrToServer=True)
 
-    print("dispatch_block serial:",hex(dispatch_block.serial))
+    print("dispatch_block serial:", hex(dispatch_block.serial))
     blk_preset_list = [x for x in dispatch_block.predset]
-    print("dispatch_block father list:",blk_preset_list)
+    print("dispatch_block father list:", blk_preset_list)
 
-    def dfs( current_node, target_node, path, paths, visited):
+    def dfs(current_node, target_node, path, paths, visited):
         path.append(current_node.serial)
         visited.add(current_node.serial)
 
@@ -132,15 +132,15 @@ def UnFlaInfo(mba,dispatch_block):
 
         path.pop()
         visited.remove(current_node.serial)
+
     paths = []
 
-    dfs(dispatch_block,dispatch_block,[],paths,set())
+    dfs(dispatch_block, dispatch_block, [], paths, set())
 
     dispatch_info = D810OllvmDispatcherInfo(mba)
     if not dispatch_info.explore(dispatch_block):
         print("set dispatch failed, dispatch_info->explore is False")
         return
-
 
     for dispatcher_father_serial in dispatch_block.predset:
         father_tracker = MopTracker(dispatch_info.entry_block.use_before_def_list, max_nb_block=100, max_path=100)
@@ -155,7 +155,6 @@ def UnFlaInfo(mba,dispatch_block):
             print("Unflattening graph: Making {0} goto {1}"
                   .format(dispatcher_father_serial, target_blk.serial))
 
-
         # father_histories_cst = get_all_possibles_values(father_histories, dispatch_info.entry_block.use_before_def_list,verbose=False)
         # Const_Hex_str=""
         # for list1 in father_histories_cst:
@@ -163,89 +162,87 @@ def UnFlaInfo(mba,dispatch_block):
         #         Const_Hex_str =  Const_Hex_str+hex(print_const)+":"
         # print("father_block:{0}:{1}".format(dispatcher_father_serial,Const_Hex_str))
 
-
     for path in paths:
-        print("path:",path)
+        print("path:", path)
 
 
-def get_block_top_level_inputs_for_mop(mblock, target_mop) -> list:
+def get_mop_key(op) -> str:
+    """规整化 mop 的物理特征，作为唯一比对键"""
+    if op.t == ida_hexrays.mop_r:
+        return f"reg_{op.r}"  # 绑定寄存器编号，无视访问大小和对象实例差异
+    elif op.t == ida_hexrays.mop_S:
+        return f"stk_{op.s.off}_{op.dstr()}"
+    return op.dstr()
+
+
+def get_block_top_level_inputs_for_mop(mblock) -> list:
     """
-    从后向前遍历单个基本块，计算并提取所有在基本块外流入、且最终影响了指定 target_mop 的顶层输入 mop。
+    判断块最后一条指令是否是条件跳转。
+    如果不是，直接返回空列表。
+    如果是，向上追踪影响条件跳转变量的顶层输入。
     """
-    if not mblock or not target_mop:
+    if not mblock:
         return []
 
-    def get_mop_key(op) -> str:
-        """规整化 mop 的物理特征，作为唯一比对键"""
-        if op.t == ida_hexrays.mop_r:
-            return f"reg_{op.r}"
-        elif op.t == ida_hexrays.mop_S:
-            return f"stk_{op.s.off}_{op.dstr()}"
-        return op.dstr()
+    # 检查最后一条指令是否是条件跳转
+    last_insn = mblock.tail
 
-    top_inputs = []  # 存放最终影响 target_mop 且来自块外的顶层 mop 实例
-    seen_keys = set()  # 防止结果重复记录
+    # 判断是否是条件跳转指令
+    if (last_insn is None) or (not ida_hexrays.is_mcode_jcond(last_insn.opcode)):
+        # 不是条件跳转，直接返回
+        print(f"--- Block {mblock.serial} 最后一条指令不是条件跳转，跳过 ---")
+        return []
 
-    # 动态追踪集合：初始化为只有用户传入的 target_mop 的 key
-    # 只要集合里的 key 在当前指令被 def，其对应的 use 就会被加入集合，从而实现逆向传播
-    tracked_keys = {get_mop_key(target_mop)}
+    # 收集条件跳转使用的变量
+    collector = InstructionDefUseCollector()
+    last_insn.for_all_ops(collector)
 
-    # 从基本块的最后一条顶层指令 (tail) 开始向前倒序遍历
-    insn = mblock.tail
-    while insn and tracked_keys:  # 如果 tracked_keys 为空，说明所有依赖都已经在块内找到了定义，可提前结束
+    condition_uses = collector.unresolved_ins_mops + collector.memory_unresolved_ins_mops
 
+    if not condition_uses:
+        print(f"--- Block {mblock.serial} 条件跳转没有使用变量 ---")
+        return []
+
+    print(f"--- 条件跳转使用的变量: {[op.dstr() for op in condition_uses]} ---")
+
+    # 追踪列表：{key: mop对象}
+    tracking_vars = {}
+
+    for use_mop in condition_uses:
+        key = get_mop_key(use_mop)
+        tracking_vars[key] = use_mop
+
+    # 从倒数第二条指令开始向前遍历
+    insn = last_insn.prev
+    while insn:
         collector = InstructionDefUseCollector()
         insn.for_all_ops(collector)
 
-        # 提取当前指令的 def 和 use
-        current_defs = [m for m in collector.target_mops if
-                        m.t in [ida_hexrays.mop_r, ida_hexrays.mop_S, ida_hexrays.mop_v]]
+        current_defs = collector.target_mops
         current_uses = collector.unresolved_ins_mops + collector.memory_unresolved_ins_mops
 
-        # 检查当前指令是否修改了我们正在追踪的物理对象
-        is_inst_relevant = False
+        # 检查当前指令是否定义了追踪变量
         for def_mop in current_defs:
-            def_key = get_mop_key(def_mop)
-            if def_key in tracked_keys:
-                is_inst_relevant = True
-                # 既然在这里被定义了，说明更往前的同名追踪可以被“阻断”或更新
-                tracked_keys.remove(def_key)
+            if def_mop.t in [ida_hexrays.mop_r, ida_hexrays.mop_S, ida_hexrays.mop_v]:
+                def_key = get_mop_key(def_mop)
 
-                # 如果这条指令确实参与了影响链（它的 def 在追踪列表中）
-        if is_inst_relevant:
-            for use_mop in current_uses:
-                use_key = get_mop_key(use_mop)
-                # 将该指令的所有输入加入追踪列表，继续向前追溯
-                tracked_keys.add(use_key)
+                # 如果定义了追踪变量，移除它，并加入当前指令的输入
+                if def_key in tracking_vars:
+                    del tracking_vars[def_key]
 
-        # 向前移动到上一条顶层指令
+                    # 将当前指令的输入加入追踪
+                    for use_mop in current_uses:
+                        use_key = get_mop_key(use_mop)
+                        if use_key not in tracking_vars:
+                            tracking_vars[use_key] = use_mop
+
         insn = insn.prev
 
-    # 遍历结束后，依然残留在 tracked_keys 中的对象，说明在块内没有找到定义
-    # 它们就是从块外流入、且切片链条上最终影响到 target_mop 的顶层输入
-    # 我们需要再次遍历一遍块（或者在第一遍时做记录），把对应的 mop 实例捞出来
-
-    # 优化捞取实例的逻辑：重新从头（或从尾）过一遍，把属于 tracked_keys 的原始 use_mop 捡出来
-    insn = mblock.tail
-    while insn and tracked_keys:
-        collector = InstructionDefUseCollector()
-        insn.for_all_ops(collector)
-        current_uses = collector.unresolved_ins_mops + collector.memory_unresolved_ins_mops
-
-        for use_mop in current_uses:
-            use_key = get_mop_key(use_mop)
-            if use_key in tracked_keys and use_key not in seen_keys:
-                seen_keys.add(use_key)
-                top_inputs.append(use_mop)
-        insn = insn.prev
-
-    # 如果 target_mop 本身就是顶层输入（块内压根没动过它），确保它也能被返回
-    target_key = get_mop_key(target_mop)
-    if target_key in tracked_keys and target_key not in seen_keys:
-        top_inputs.append(target_mop)
-
-    print(f"--- Block {mblock.serial} 影响目标 {get_mop_key(target_mop)} 的顶层输入清单 ---")
+    top_inputs = list(tracking_vars.values())
+    print(f"--- Block {mblock.serial} 影响条件跳转的顶层输入数量: {len(top_inputs)} ---")
     return top_inputs
+
+
 
 def get_block_top_level_inputs(mblock) -> list:
     """
@@ -258,14 +255,6 @@ def get_block_top_level_inputs(mblock) -> list:
     top_inputs = []  # 存放最终提取出的顶层 mop 实例
     seen_keys = set()  # 用于防止结果重复记录
     defined_so_far = set()  # 动态账本：记录从后向前走过的指令中，哪些物理实体被重新定义/赋值了
-
-    def get_mop_key(op) -> str:
-        """规整化 mop 的物理特征，作为唯一比对键"""
-        if op.t == ida_hexrays.mop_r:
-            return f"reg_{op.r}"  # 绑定寄存器编号，无视访问大小和对象实例差异
-        elif op.t == ida_hexrays.mop_S:
-            return f"stk_{op.s.off}_{op.dstr()}"
-        return op.dstr()
 
     # 从基本块的最后一条顶层指令 (tail) 开始，利用 prev 指针向前倒序遍历
     insn = mblock.tail
@@ -298,14 +287,15 @@ def get_block_top_level_inputs(mblock) -> list:
     print(f"--- Block {mblock.serial} 顶层输入名字清单 ---")
     return top_inputs
 
-def eval_blk(mba,current_block,environment_values):
-    print("eval_blk serial:",hex(current_block.serial))
+
+def eval_blk( current_block, environment_values):
+    print("eval_blk serial:", hex(current_block.serial))
     microcode_interpreter = SymbolicMicroCodeInterpreter()
     microcode_environment = SymbolicMicroCodeEnvironment()
     for mop_obj, val in environment_values.items():
         print(f" -> [原始微码 MOP] 对象名字: {mop_obj.dstr()} 对应的修补值: {val}")
         if val != "None":
-            microcode_environment.define(mop_obj,ExprInt(val,mop_obj.size))
+            microcode_environment.define(mop_obj, ExprInt(val, mop_obj.size))
     cur_blk = current_block
     cur_ins = current_block.head
     while cur_ins is not None:
@@ -314,7 +304,7 @@ def eval_blk(mba,current_block,environment_values):
         cur_ins = cur_ins.next
     microcode_environment.dump()
     next_blk = microcode_environment.next_blk
-    if isinstance(next_blk,hr.mblock_t):
-        print("next_blk",next_blk.serial)
+    if isinstance(next_blk, hr.mblock_t):
+        print("next_blk", next_blk.serial)
     else:
-        print("next_blk",next_blk)
+        print("next_blk", next_blk)

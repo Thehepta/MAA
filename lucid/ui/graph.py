@@ -160,7 +160,7 @@ class dominance_graphviewer_t(microcode_graphviewer_t):
             dialog = PureModalPatchChooser(title_msg, my_initial_variables)
             if QtWidgets.QDialog.DialogCode.Accepted == dialog.exec():
                 environment_value = dialog.get_results()
-                eval_blk(self._mba,self.select_block,environment_value)
+                eval_blk(self.select_block,environment_value)
             else:
                 print("dialog cancelled")
         elif cmd_id == self.save_graphviz_id:
