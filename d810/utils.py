@@ -1,9 +1,12 @@
 import ctypes
 
+from d810.hexrays_formatters import format_mop_t
 from d810.hexrays_helpers import MSB_TABLE
+from ida_hexrays import mop_t, mop_r, get_mreg_name, mop_S, mop_v
 
 CTYPE_SIGNED_TABLE = {1: ctypes.c_int8, 2: ctypes.c_int16, 4: ctypes.c_int32, 8: ctypes.c_int64}
 CTYPE_UNSIGNED_TABLE = {1: ctypes.c_uint8, 2: ctypes.c_uint16, 4: ctypes.c_uint32, 8: ctypes.c_uint64}
+
 
 class UnflatteningException(Exception):
     pass
@@ -90,3 +93,85 @@ def ror(x, n, nb_bits=32):
 
 def rol(x, n, nb_bits=32):
     return ror(x, nb_bits - n, nb_bits)
+
+
+def get_mop_name(mop: mop_t) -> str:
+    """
+    Generate a unique identifier string for a mop.
+    Uses structural properties (type + internal id) rather than display string.
+    Does NOT include size — consistent with equal_mops_ignore_size which treats
+    the same register/stack slot as identical regardless of access size.
+    Size handling is done at the expression level (via slice/extend).
+    """
+    if mop.t == mop_r:
+        # Register: use register number only (eax/rax/ax/al all share r=0)
+        width = mop.size
+        name = get_mreg_name(mop.r, width)
+        return name
+    elif mop.t == mop_S:
+        # Stack variable: use stack offset
+        return "var_{:x}".format(mop.s.off & 0xFFFFFFFF)
+    elif mop.t == mop_v:
+        # Global variable: use address
+        return "gvar_{:x}".format(mop.g)
+    else:
+        # Fallback: use display string
+        return format_mop_t(mop)
+
+
+def find_all_paths_dfs(start_block, end_blocks):
+    """
+    使用DFS算法寻找从起始节点到终点列表中任意节点的所有路径
+
+    Args:
+        start_block: 起始块 (mblock_t)
+        end_blocks: 终点块列表 [mblock_t]
+
+    Returns:
+        list: 所有符合条件的路径列表，每条路径是块编号列表
+    """
+    if not start_block or not end_blocks:
+        return []
+
+    # 将终点列表转换为集合，方便快速查找
+    end_block_nums = set(blk.serial for blk in end_blocks)
+
+    all_paths = []  # 存储所有符合条件的路径
+    visited = set()  # 防止循环
+
+    def dfs(current_block, path):
+        """
+        DFS递归函数
+
+        Args:
+            current_block: 当前块 (mblock_t)
+            path: 当前路径 [块编号]
+        """
+        current_num = current_block.serial
+
+        # 检测环
+        if current_num in visited:
+            return
+
+        # 将当前块加入路径
+        path.append(current_num)
+        visited.add(current_num)
+
+        # 如果当前块是终点，保存路径
+        if current_num in end_block_nums:
+            all_paths.append(path.copy())
+            # 不立即返回，继续查找其他路径
+        else:
+            # 遍历所有后继块
+            for succ_num in current_block.succs:
+                succ_block = current_block.mba.get_mblock(succ_num)
+                dfs(succ_block, path)
+
+        # 回溯
+        path.pop()
+        visited.remove(current_num)
+
+    # 从起始块开始DFS
+    dfs(start_block, [])
+
+    return all_paths

@@ -18,7 +18,7 @@ from ida_idp import reg_info_t, parse_reg_name
 
 symb_log.setLevel(logging.DEBUG)
 
-from d810.tracker import MopTracker
+from d810.tracker import MopTracker, remove_segment_registers
 from d810.utils import NotResolvableFatherException, get_all_possibles_values
 
 FLATTENING_JUMP_OPCODES = [hr.m_jnz, hr.m_jz, hr.m_jae, hr.m_jb, hr.m_ja, hr.m_jbe, hr.m_jg, hr.m_jge, hr.m_jl,
@@ -197,7 +197,8 @@ def get_block_top_level_inputs_for_mop(mblock) -> list:
     collector = InstructionDefUseCollector()
     last_insn.for_all_ops(collector)
 
-    condition_uses = collector.unresolved_ins_mops + collector.memory_unresolved_ins_mops
+    ins_mop_info = collector.unresolved_ins_mops + collector.memory_unresolved_ins_mops
+    condition_uses  = remove_segment_registers(ins_mop_info.unresolved_ins_mops)
 
     if not condition_uses:
         print(f"--- Block {mblock.serial} 条件跳转没有使用变量 ---")
@@ -243,68 +244,34 @@ def get_block_top_level_inputs_for_mop(mblock) -> list:
     return top_inputs
 
 
-
 def get_block_top_level_inputs(mblock) -> list:
-    """
-    从后向前遍历单个基本块，提取所有属于 ud 链顶层（即块外流入）的输入 mop。
-    基于逻辑：如果在当前输入指令的后续指令中找不到定义，它就是顶层输入。
-    """
-    if not mblock:
-        return []
 
-    top_inputs = []  # 存放最终提取出的顶层 mop 实例
-    seen_keys = set()  # 用于防止结果重复记录
-    defined_so_far = set()  # 动态账本：记录从后向前走过的指令中，哪些物理实体被重新定义/赋值了
-
-    # 从基本块的最后一条顶层指令 (tail) 开始，利用 prev 指针向前倒序遍历
-    insn = mblock.tail
-    while insn:
-        # 1. 实例化你写好的收集器，并借助原生的 for_all_ops 收集当前指令的 use 和 def
-        # 你的 visitor 遇到 mop_d 返回 0 的设计，天然保证了这里绝不会因为嵌套而卡死
-        collector = InstructionDefUseCollector()
-        insn.for_all_ops(collector)
-
-        # 2. 【处理输入】合并常规输入与内存输入
-        current_uses = collector.unresolved_ins_mops + collector.memory_unresolved_ins_mops
-        for use_mop in current_uses:
-            use_key = get_mop_key(use_mop)
-
-            # 如果这个输入在它后面的指令里【没有找到】关于它的定义，说明它目前来自块外部（顶层）
-            if use_key not in defined_so_far:
-                if use_key not in seen_keys:
-                    seen_keys.add(use_key)
-                    top_inputs.append(use_mop)
-
-        # 3. 【更新定义账本】记录当前指令改写了什么
-        # 它的作用是：让当前指令前方（更早执行）的指令在走到第 2 步时，能够有依据进行“重新处理”并将其过滤
-        for def_mop in collector.target_mops:
-            if def_mop.t in [ida_hexrays.mop_r, ida_hexrays.mop_S, ida_hexrays.mop_v]:
-                def_key = get_mop_key(def_mop)
-                defined_so_far.add(def_key)
-
-        # 向前移动到上一条顶层指令
-        insn = insn.prev
-    print(f"--- Block {mblock.serial} 顶层输入名字清单 ---")
-    return top_inputs
+    entry_block = GenericDispatcherBlockInfo(mblock)
+    entry_block.parse()
+    return entry_block.use_before_def_list
 
 
-def eval_blk( current_block, environment_values):
+def eval_current_blk(current_block, environment_values):
     print("eval_blk serial:", hex(current_block.serial))
-    microcode_interpreter = SymbolicMicroCodeInterpreter()
     microcode_environment = SymbolicMicroCodeEnvironment()
     for mop_obj, val in environment_values.items():
         print(f" -> [原始微码 MOP] 对象名字: {mop_obj.dstr()} 对应的修补值: {val}")
         if val != "None":
             microcode_environment.define(mop_obj, ExprInt(val, mop_obj.size))
+    eva_blk(current_block, microcode_environment)
+    microcode_environment.dump()
+
+
+def eva_blk(current_block, microcode_environment: SymbolicMicroCodeEnvironment):
+    microcode_interpreter = SymbolicMicroCodeInterpreter()
+    if microcode_environment is None:
+        microcode_environment = SymbolicMicroCodeEnvironment()
+
     cur_blk = current_block
     cur_ins = current_block.head
     while cur_ins is not None:
         print(cur_ins.dstr())
         microcode_interpreter.eval_instruction(cur_blk, cur_ins, microcode_environment)
         cur_ins = cur_ins.next
-    microcode_environment.dump()
-    next_blk = microcode_environment.next_blk
-    if isinstance(next_blk, hr.mblock_t):
-        print("next_blk", next_blk.serial)
-    else:
-        print("next_blk", next_blk)
+
+    return microcode_environment

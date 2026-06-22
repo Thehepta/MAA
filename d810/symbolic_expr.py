@@ -404,27 +404,3 @@ class ExprCond(Expr):
 
     def copy(self) -> ExprCond:
         return ExprCond(self._cond.copy(), self._src_true.copy(), self._src_false.copy())
-
-
-# ============================================================
-# Convenience constructors
-# ============================================================
-
-def expr_int(value: int, size: int) -> ExprInt:
-    """Create a concrete integer expression."""
-    return ExprInt(value, size)
-
-
-def expr_id(name: str, size: int) -> ExprId:
-    """Create a symbolic identifier expression."""
-    return ExprId(name, size)
-
-
-def expr_mem(addr: Expr, size: int) -> ExprMem:
-    """Create a memory access expression."""
-    return ExprMem(addr, size)
-
-
-def expr_op(op: str, args: List[Expr], size: int) -> ExprOp:
-    """Create an operation expression."""
-    return ExprOp(op, args, size)

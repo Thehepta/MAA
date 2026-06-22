@@ -9,6 +9,7 @@ from __future__ import annotations
 import logging
 from typing import List, Union, Optional, Dict
 
+from d810.utils import get_mop_name
 from ida_bytes import get_qword
 from ida_hexrays import (
     minsn_t, mblock_t, mop_t,
@@ -115,30 +116,6 @@ class SymbolicMicroCodeEnvironment:
         self._symbol_counter += 1
         return "{}_{}".format(prefix, self._symbol_counter)
 
-    @staticmethod
-    def _mop_to_unique_name(mop: mop_t) -> str:
-        """
-        Generate a unique identifier string for a mop.
-        Uses structural properties (type + internal id) rather than display string.
-        Does NOT include size — consistent with equal_mops_ignore_size which treats
-        the same register/stack slot as identical regardless of access size.
-        Size handling is done at the expression level (via slice/extend).
-        """
-        if mop.t == mop_r:
-            # Register: use register number only (eax/rax/ax/al all share r=0)
-            width = mop.size
-            name = get_mreg_name(mop.r,width)
-            return name
-        elif mop.t == mop_S:
-            # Stack variable: use stack offset
-            return "stk{:x}".format(mop.s.off & 0xFFFFFFFF)
-        elif mop.t == mop_v:
-            # Global variable: use address
-            return "gvar{:x}".format(mop.g)
-        else:
-            # Fallback: use display string
-            return format_mop_t(mop)
-
     def get_copy(self) -> SymbolicMicroCodeEnvironment:
         """Create a full copy of this environment (all records are copied)."""
         new_env = SymbolicMicroCodeEnvironment()
@@ -208,7 +185,7 @@ class SymbolicMicroCodeEnvironment:
         # Not found: create a fresh symbolic variable
         if create_symbol:
             size = mop.size if mop.size > 0 else 8
-            name = self._mop_to_unique_name(mop)
+            name = get_mop_name(mop)
             symbol = ExprId(name, size)
             symb_log.debug("Created symbolic variable for undefined mop: {0}".format(name))
             return symbol
@@ -228,28 +205,33 @@ class SymbolicMicroCodeEnvironment:
         print("=" * 60)
         print("SymbolicMicroCodeEnvironment dump")
         print("=" * 60)
+        next_blk = self.next_blk
+        if isinstance(next_blk, mblock_t):
+            print("next_blk:", next_blk.serial)
+        else:
+            print("next_blk is None")
 
         if len(self.mop_r_record) > 0:
             print("[Registers]")
             for mop, value in self.mop_r_record.items():
-                width = mop.size
-                name = get_mreg_name(mop.r, width)
+                name = get_mop_name(mop)
                 print("  {0} = {1}".format(name, value))
-
         if len(self.mop_S_record) > 0:
             print("[Stack Variables]")
             for mop, value in self.mop_S_record.items():
-                print("  {0} = {1}".format(format_mop_t(mop), value))
-
+                name = get_mop_name(mop)
+                print("  {0} = {1}".format(name, value))
         if len(self.mop_v_record) > 0:
             print("[Global Variables]")
             for mop, value in self.mop_v_record.items():
-                print("  {0} = {1}".format(format_mop_t(mop), value))
+                name = get_mop_name(mop)
+                print("  {0} = {1}".format(name, value))
 
         total = len(self.mop_r_record) + len(self.mop_S_record) + len(self.mop_v_record)
         print("-" * 60)
         print("Total: {0} entries".format(total))
         print("=" * 60)
+
 
 class SymbolicMicroCodeInterpreter:
     """

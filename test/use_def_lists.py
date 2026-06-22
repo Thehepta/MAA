@@ -172,6 +172,35 @@ class D810OllvmDispatcherInfo(GenericDispatcherInfo):
 
 
 
+def get_block_external_deps_by_ud(mba, target_serial):
+    """
+    使用 UD 链找出 target_serial 块的所有外部依赖变量。
+
+    返回：list of (voff_t, def_block_serials)
+    """
+    graph = mba.get_graph()
+    ud = graph.get_ud(hr.GC_REGS_AND_STKVARS)
+
+    bc = ud.at(target_serial)  # block_chains_t
+
+    external_deps = []
+
+    # 遍历该块所有 chain
+    # chain_t 继承自 intvec_t，可以直接 for 循环
+    for chain in bc:
+        if not chain.is_inited():
+            continue
+
+        # chain 里是定义了这个变量的所有块号
+        def_blocks = set(int(bn) for bn in chain)
+
+        # 如果当前块自己不定义它，就是外部依赖
+        if target_serial not in def_blocks:
+            voff = chain.key()
+            external_deps.append((voff, def_blocks))
+
+    return external_deps
+
 def UnFlaInfo(mba):
     # import pydevd_pycharm
     # pydevd_pycharm.settrace('localhost', port=31235, stdoutToServer=True, stderrToServer=True)
@@ -179,74 +208,18 @@ def UnFlaInfo(mba):
     # blk_preset_list = [x for x in dispatch_block.predset]
     # print("dispatch_block father list:", blk_preset_list)
 
-    dispatch_npred = -1
-    dispatch_block = None
-    for blk_idx in range(mba.qty):
-        blk = mba.get_mblock(blk_idx)
-        npred = blk.npred()
-        if dispatch_npred < npred:
-            dispatch_npred = npred
-            dispatch_block = blk
-    print("dispatch_block:",dispatch_block.serial)
 
-    dispatch_info = D810OllvmDispatcherInfo(mba)
-    if not dispatch_info.explore(dispatch_block):
-        print("set dispatch failed, dispatch_info->explore is False")
-        return
+    blk = mba.get_mblock(21)
+    entry_block = GenericDispatcherBlockInfo(blk)
+    entry_block.parse()
+    for m in entry_block.use_before_def_list:
+        print("use_before_def_list:",m.dstr())
 
-    dispatcher_internal_blocks = [x.serial for x in dispatch_info.dispatcher_internal_blocks]
-    print("dispatcher_internal_blocks:",dispatcher_internal_blocks)
+    for m in entry_block.use_list:
+        print("use_list:",m.dstr())
 
-
-
-    def dfs(current_node, target_node, path, paths, visited):
-        path.append(current_node.serial)
-        visited.add(current_node.serial)
-
-        for neighbor in current_node.succs():
-            if neighbor.serial == target_node.serial and len(path) > 1:
-                paths.append(list(path))
-            elif neighbor.serial not in visited:
-                dfs(neighbor, target_node, path, paths, visited)
-
-        path.pop()
-        visited.remove(current_node.serial)
-
-    paths = []
-
-    # dfs(dispatch_block, dispatch_block, [], paths, set())
-    #
-
-    #
-    # for dispatcher_father_serial in dispatch_block.predset:
-    #     father_tracker = MopTracker(dispatch_info.entry_block.use_before_def_list, max_nb_block=100, max_path=100)
-    #     father_tracker.reset()
-    #     dispatcher_father_block = mba.get_mblock(dispatcher_father_serial)
-    #     print("MopTracker block:{0}".format(dispatcher_father_serial))
-    #     father_histories = father_tracker.search_backward(dispatcher_father_block, None)
-    #     if len(father_histories) > 1:
-    #         print("father_block:{0} is  multiple branches".format(dispatcher_father_serial))
-    #     try:
-    #         # 还原,分发器到分发器的前驱这条代码路径的混淆
-    #         for cur_history in father_histories:
-    #             print("emulate_dispatcher:{0}".format( cur_history))
-    #             target_blk, disp_ins = dispatch_info.emulate_dispatcher_with_father_history(cur_history)
-    #             if target_blk is not None:
-    #                 print("Unflattening graph: Making {0} goto {1}".format(dispatcher_father_serial, target_blk.serial))
-    #     except NotResolvableFatherException as e:
-    #         print("NotResolvableFatherException")
-    #
-    #     father_histories_cst = get_all_possibles_values(father_histories, dispatch_info.entry_block.use_before_def_list,
-    #                                                     verbose=False)
-    #     # Const_Hex_str = ""
-    #     # for list1 in father_histories_cst:
-    #     #     for print_const in list1:
-    #     #         Const_Hex_str = Const_Hex_str + hex(print_const) + ":"
-    #     print("father_block:{0}:{1}".format(dispatcher_father_serial, father_histories_cst))
-    #
-    # for path in paths:
-    #     print("path:", path)
-
+    for m in entry_block.def_list:
+        print("def_list:",m.dstr())
 
 # 将函数转变成 ida的mba，然后进行解混淆，并显示解混淆后的cfg
 def start():

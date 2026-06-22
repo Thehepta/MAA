@@ -1,5 +1,6 @@
 import ida_kernwin
 from PySide6 import QtWidgets, QtCore, QtGui
+from d810.utils import get_mop_name
 
 
 class MopResultWrapper:
@@ -53,15 +54,13 @@ class PureModalPatchChooser(QtWidgets.QDialog):
     def __init__(self, title, top_inputs_list, parent=None):
         super().__init__(parent)
         self.setWindowTitle(title)
-        self.setMinimumWidth(640)
-        self.setMinimumHeight(320)
 
         self.mop_mapping = {}
         self._raw_rows = []  # [[name, value, base, size], ...]
 
         # ---- 构建 mop_mapping ----
         for op in top_inputs_list:
-            clean_name = op.dstr()
+            clean_name = get_mop_name(op)
             base_name = clean_name
             counter = 1
             while clean_name in self.mop_mapping:
@@ -73,22 +72,24 @@ class PureModalPatchChooser(QtWidgets.QDialog):
         # ---- 表格 ----
         self.table = QtWidgets.QTableWidget(len(self._raw_rows), 4, self)
         self.table.setHorizontalHeaderLabels(["变量名称", "当前值/修补值", "进制", "宽度"])
+        # 所有列按内容自适应宽度，消除水平滚动条
+        self.table.horizontalHeader().setSectionResizeMode(
+            QtWidgets.QHeaderView.ResizeMode.ResizeToContents
+        )
+        # 最后一列 Stretch 填满剩余宽度
         self.table.horizontalHeader().setStretchLastSection(True)
-        self.table.horizontalHeader().setSectionResizeMode(
-            self.COL_NAME, QtWidgets.QHeaderView.ResizeMode.Stretch
-        )
-        self.table.horizontalHeader().setSectionResizeMode(
-            self.COL_VALUE, QtWidgets.QHeaderView.ResizeMode.Stretch
-        )
         self.table.setSelectionBehavior(QtWidgets.QAbstractItemView.SelectionBehavior.SelectRows)
         self.table.setEditTriggers(QtWidgets.QAbstractItemView.EditTrigger.NoEditTriggers)
         self.table.cellDoubleClicked.connect(self._on_cell_double_clicked)
+
+        # 禁用滚动条 —— 窗口高度会自适应行数
+        self.table.setVerticalScrollBarPolicy(QtCore.Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        self.table.setHorizontalScrollBarPolicy(QtCore.Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
 
         # 填充数据
         for row, data in enumerate(self._raw_rows):
             for col, val in enumerate(data):
                 item = QtWidgets.QTableWidgetItem(str(val))
-                # 变量名称、宽度列不可编辑（由双击逻辑处理值列）
                 item.setTextAlignment(QtCore.Qt.AlignmentFlag.AlignCenter)
                 self.table.setItem(row, col, item)
 
@@ -96,11 +97,12 @@ class PureModalPatchChooser(QtWidgets.QDialog):
         self._base_delegate = _BaseComboDelegate(self)
         self.table.setItemDelegateForColumn(self.COL_BASE, self._base_delegate)
 
-        # ---- 按钮 ----
-        btn_box = QtWidgets.QDialogButtonBox(
-            QtWidgets.QDialogButtonBox.StandardButton.Ok
-            | QtWidgets.QDialogButtonBox.StandardButton.Cancel
-        )
+        # ---- 按钮：执行 / 取消 ----
+        btn_exec = QtWidgets.QPushButton("执行")
+        btn_cancel = QtWidgets.QPushButton("取消")
+        btn_box = QtWidgets.QDialogButtonBox()
+        btn_box.addButton(btn_exec, QtWidgets.QDialogButtonBox.ButtonRole.AcceptRole)
+        btn_box.addButton(btn_cancel, QtWidgets.QDialogButtonBox.ButtonRole.RejectRole)
         btn_box.accepted.connect(self.accept)
         btn_box.rejected.connect(self.reject)
 
@@ -109,6 +111,35 @@ class PureModalPatchChooser(QtWidgets.QDialog):
         layout.addWidget(self.table)
         layout.addWidget(btn_box)
         self.setLayout(layout)
+
+        # ---- 自适应窗口大小：根据行数计算高度 ----
+        self._adjust_size()
+
+    def _adjust_size(self):
+        """根据表格行数自适应窗口高度，消除垂直滚动条"""
+        self.table.resizeColumnsToContents()
+        self.table.resizeRowsToContents()
+
+        # 计算表格理想高度
+        header_h = self.table.horizontalHeader().height()
+        rows_h = sum(self.table.rowHeight(r) for r in range(self.table.rowCount()))
+        table_ideal_h = header_h + rows_h + 4  # 4px 容差
+
+        # 按钮 + 布局边距
+        btn_h = 40
+        margins = self.layout().contentsMargins()
+        spacing = self.layout().spacing()
+        extra = margins.top() + margins.bottom() + spacing + btn_h + 8
+
+        ideal_h = table_ideal_h + extra
+        # 限高：不超过屏幕 80%
+        screen_h = QtWidgets.QApplication.primaryScreen().availableGeometry().height()
+        max_h = int(screen_h * 0.8)
+        final_h = min(ideal_h, max_h)
+
+        self.setFixedHeight(final_h)
+        self.setMinimumWidth(480)
+        self.setMaximumHeight(max_h)
 
     # ------------------------------------------------------------------
     # 拦截 Esc：不关闭窗口，仅清除表格选中
