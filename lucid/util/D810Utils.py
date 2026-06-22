@@ -269,9 +269,45 @@ def eva_blk(current_block, microcode_environment: SymbolicMicroCodeEnvironment):
 
     cur_blk = current_block
     cur_ins = current_block.head
-    while cur_ins is not None:
+    max_steps = 1000
+    step = 0
+
+    while cur_ins is not None and step < max_steps:
+        step += 1
         print(cur_ins.dstr())
         microcode_interpreter.eval_instruction(cur_blk, cur_ins, microcode_environment)
+
+        # 检查是否有符号化跳转目标
+        irdst = microcode_environment.irdst
+        if irdst is not None:
+            if irdst.is_int():
+                # 具体跳转：跟随到目标块
+                target_serial = irdst.as_int()
+                cur_blk = cur_blk.mba.get_mblock(target_serial)
+                cur_ins = cur_blk.head
+                microcode_environment.irdst = None
+                continue
+            elif irdst.is_cond():
+                # 符号条件跳转：当前选择 fallthrough 路径继续执行
+                # irdst 保留在环境中，供后续分析
+                symb_log = logging.getLogger('D810.emulator')
+                symb_log.debug("Symbolic branch: {0}, following fallthrough".format(irdst))
+                fallthrough_serial = irdst.src_false.as_int()
+                cur_blk = cur_blk.mba.get_mblock(fallthrough_serial)
+                cur_ins = cur_blk.head
+                microcode_environment.irdst = None
+                continue
+            else:
+                # 其他符号化跳转目标（如间接跳转）：停止执行
+                break
+
+        # 没有控制流指令：继续执行下一条指令
         cur_ins = cur_ins.next
+        if cur_ins is None:
+            # 当前块执行完毕，跟随到下一个块
+            next_blk = cur_blk.mba.get_mblock(cur_blk.serial + 1)
+            if next_blk is not None:
+                cur_blk = next_blk
+                cur_ins = cur_blk.head
 
     return microcode_environment

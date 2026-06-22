@@ -108,6 +108,11 @@ class SymbolicMicroCodeEnvironment:
         self.next_blk: Optional[mblock_t] = None
         self.next_ins: Optional[minsn_t] = None
 
+        # 符号化跳转目标，类似 Miasm 的 IRDst
+        # 具体跳转: ExprInt(serial, 4)
+        # 条件跳转: ExprCond(cond, ExprInt(target), ExprInt(fallthrough))
+        self.irdst: Optional[Expr] = None
+
         # Counter for generating unique symbol names
         self._symbol_counter = 0
 
@@ -126,6 +131,7 @@ class SymbolicMicroCodeEnvironment:
         new_env.cur_ins = self.cur_ins
         new_env.next_blk = self.next_blk
         new_env.next_ins = self.next_ins
+        new_env.irdst = self.irdst
         new_env._symbol_counter = self._symbol_counter
         return new_env
 
@@ -205,6 +211,8 @@ class SymbolicMicroCodeEnvironment:
         print("=" * 60)
         print("SymbolicMicroCodeEnvironment dump")
         print("=" * 60)
+        if self.irdst is not None:
+            print("IRDst: {0}".format(self.irdst))
         next_blk = self.next_blk
         if isinstance(next_blk, mblock_t):
             print("next_blk:", next_blk.serial)
@@ -404,46 +412,45 @@ class SymbolicMicroCodeInterpreter:
         raise EmulationException("Get block serial with unsupported mop type '{0}': '{1}'"
                                  .format(mop_type_to_string(mop.t), format_mop_t(mop)))
 
-    def _eval_conditional_jump(self, ins: minsn_t, environment: SymbolicMicroCodeEnvironment) -> Optional[int]:
+    def _eval_conditional_jump_cond(self, ins: minsn_t, environment: SymbolicMicroCodeEnvironment) -> Optional[Expr]:
         """
-        Evaluate conditional jump. Returns target block serial if condition is concrete,
-        None if condition is symbolic (let D810 handle it).
+        Evaluate conditional jump condition symbolically.
+        Returns an Expr representing the condition (non-zero = jump taken).
+        Returns None if not a conditional jump.
         """
         if ins.opcode not in CONDITIONAL_JUMP_OPCODES:
             return None
         if ins.opcode == m_jtbl:
             return None
 
-        cur_blk = environment.cur_blk
-        direct_child_serial = cur_blk.serial + 1
-
-        # Evaluate the condition
         if ins.opcode == m_jcnd:
-            cond_expr = self.eval(ins.l, environment)
-        elif ins.opcode == m_jnz:
-            cond_expr = self.eval(ins.l, environment) != self.eval(ins.r, environment)
+            return self.eval(ins.l, environment)
+
+        left = self.eval(ins.l, environment)
+        right = self.eval(ins.r, environment)
+
+        if ins.opcode == m_jnz:
+            return simplify(ExprOp('!=', [left, right], 1))
         elif ins.opcode == m_jz:
-            cond_expr = self.eval(ins.l, environment) == self.eval(ins.r, environment)
+            return simplify(ExprOp('==', [left, right], 1))
         elif ins.opcode == m_jae:
-            cond_expr = self.eval(ins.l, environment) >= self.eval(ins.r, environment)
+            return simplify(ExprOp('>=u', [left, right], 1))
         elif ins.opcode == m_jb:
-            cond_expr = self.eval(ins.l, environment) < self.eval(ins.r, environment)
+            return simplify(ExprOp('<u', [left, right], 1))
         elif ins.opcode == m_ja:
-            cond_expr = self.eval(ins.l, environment) > self.eval(ins.r, environment)
+            return simplify(ExprOp('>u', [left, right], 1))
         elif ins.opcode == m_jbe:
-            cond_expr = self.eval(ins.l, environment) <= self.eval(ins.r, environment)
+            return simplify(ExprOp('<=u', [left, right], 1))
         elif ins.opcode == m_jg:
-            cond_expr =  unsigned_to_signed(self.eval(ins.l, environment).as_int(),ins.l.size) > unsigned_to_signed(self.eval(ins.r, environment).as_int(),ins.r.size)
+            return simplify(ExprOp('>s', [left, right], 1))
         elif ins.opcode == m_jge:
-            cond_expr =  unsigned_to_signed(self.eval(ins.l, environment).as_int(),ins.l.size) >= unsigned_to_signed(self.eval(ins.r, environment).as_int(),ins.r.size)
+            return simplify(ExprOp('>=s', [left, right], 1))
         elif ins.opcode == m_jl:
-            cond_expr =  unsigned_to_signed(self.eval(ins.l, environment).as_int(),ins.l.size) < unsigned_to_signed(self.eval(ins.r, environment).as_int(),ins.r.size)
+            return simplify(ExprOp('<s', [left, right], 1))
         elif ins.opcode == m_jle:
-            cond_expr =  unsigned_to_signed(self.eval(ins.l, environment).as_int(),ins.l.size) <= unsigned_to_signed(self.eval(ins.r, environment).as_int(),ins.r.size)
+            return simplify(ExprOp('<=s', [left, right], 1))
         else:
             raise EmulationException("Unhandled conditional jump:  '{0}'".format(format_minsn_t(ins)))
-
-        return self._get_blk_serial(ins.d) if cond_expr else direct_child_serial
 
     def _eval_control_flow_instruction(self, ins: minsn_t, environment: SymbolicMicroCodeEnvironment) -> bool:
         if ins.opcode not in CONTROL_FLOW_OPCODES:
@@ -453,16 +460,39 @@ class SymbolicMicroCodeInterpreter:
             raise EmulationException("Can't evaluate control flow instruction with null block: '{0}'"
                                      .format(format_minsn_t(ins)))
 
-        next_blk_serial = self._eval_conditional_jump(ins, environment)
-        if next_blk_serial is not None:
-            next_blk = cur_blk.mba.get_mblock(next_blk_serial)
-            next_ins = next_blk.head
-            environment.set_next_flow(next_blk, next_ins)
+        cond = self._eval_conditional_jump_cond(ins, environment)
+        if cond is not None:
+            target_serial = self._get_blk_serial(ins.d)
+            fallthrough_serial = cur_blk.serial + 1
+
+            if cond.is_int():
+                # 条件是具体值：选择对应路径
+                if cond.as_int() != 0:
+                    next_blk_serial = target_serial
+                else:
+                    next_blk_serial = fallthrough_serial
+                next_blk = cur_blk.mba.get_mblock(next_blk_serial)
+                next_ins = next_blk.head
+                environment.set_next_flow(next_blk, next_ins)
+                environment.irdst = ExprInt(next_blk_serial, 4)
+            else:
+                # 条件是符号的：构建 ExprCond 跳转目标
+                environment.irdst = ExprCond(
+                    cond,
+                    ExprInt(target_serial, 4),
+                    ExprInt(fallthrough_serial, 4)
+                )
             return True
 
         if ins.opcode == m_goto:
             next_blk_serial = self._get_blk_serial(ins.l)
-        elif ins.opcode == m_jtbl:
+            next_blk = cur_blk.mba.get_mblock(next_blk_serial)
+            next_ins = next_blk.head
+            environment.set_next_flow(next_blk, next_ins)
+            environment.irdst = ExprInt(next_blk_serial, 4)
+            return True
+
+        if ins.opcode == m_jtbl:
             left_value = self.eval(ins.l, environment)
             if not left_value.is_int():
                 symb_log.debug("jtbl index is symbolic, cannot resolve")
@@ -492,7 +522,6 @@ class SymbolicMicroCodeInterpreter:
                     ijmp_dest_ea, dest_block_serials)
             next_blk_serial = dest_block_serials[0]
         else:
-            # For unresolved conditional jumps, return False
             return False
 
         if next_blk_serial is None:
@@ -500,6 +529,7 @@ class SymbolicMicroCodeInterpreter:
         next_blk = cur_blk.mba.get_mblock(next_blk_serial)
         next_ins = next_blk.head
         environment.set_next_flow(next_blk, next_ins)
+        environment.irdst = ExprInt(next_blk_serial, 4)
         return True
 
     def _eval_call_helper(self, ins: minsn_t, environment: SymbolicMicroCodeEnvironment) -> Optional[Expr]:
