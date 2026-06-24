@@ -1,7 +1,8 @@
 import logging
 from typing import List, Tuple
 
-from d810.emulator import SymbolicMicroCodeInterpreter,SymbolicMicroCodeEnvironment
+from d810.emulator.Environment import SymbolicMicroCodeEnvironment
+from d810.emulator.Interpreter import SymbolicMicroCodeInterpreter
 from d810.hexrays_formatters import format_minsn_t, format_mop_list, format_mop_t
 from d810.hexrays_helpers import append_mop_if_not_in_list, get_mop_index, CONDITIONAL_JUMP_OPCODES, extract_num_mop
 from d810.hexrays_hooks import InstructionDefUseCollector
@@ -140,7 +141,6 @@ class GenericDispatcherInfo(object):
         return False
 
     def emulate_dispatcher_with_father_history(self, father_history: SymbolicMopHistory) -> Tuple[mblock_t, List[minsn_t]]:
-        microcode_interpreter = SymbolicMicroCodeInterpreter()
         microcode_environment = SymbolicMicroCodeEnvironment()
         dispatcher_input_info = []
         # First, we setup the MicroCodeEnvironment with the state variables (self.entry_block.use_before_def_list)
@@ -161,6 +161,8 @@ class GenericDispatcherInfo(object):
         #                    .format(self.entry_block.blk.serial, ", ".join(dispatcher_input_info)))
 
         # Now, we start the emulation of the code at the dispatcher entry block
+        microcode_interpreter = SymbolicMicroCodeInterpreter(microcode_environment)
+
         instructions_executed = []
         cur_blk = self.entry_block.blk
         cur_ins = cur_blk.head
@@ -169,9 +171,8 @@ class GenericDispatcherInfo(object):
             unflat_logger.debug("  Executing: {0}.{1}".format(cur_blk.serial, format_minsn_t(cur_ins)))
             # We evaluate the current instruction of the dispatcher to determine
             # which block and instruction should be executed next
-            is_ok = microcode_interpreter.eval_instruction(cur_blk, cur_ins, microcode_environment)
-            if not is_ok:
-                return cur_blk, instructions_executed
+            microcode_interpreter.eval_blk(cur_blk)
+
             instructions_executed.append(cur_ins)
             cur_blk = microcode_environment.next_blk
             cur_ins = microcode_environment.next_ins

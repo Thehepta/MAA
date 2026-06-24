@@ -6,7 +6,7 @@ import ida_funcs
 import ida_ida
 import ida_range
 # from d810.emulator import MicroCodeInterpreter, MicroCodeEnvironment
-from d810.emulator import SymbolicMicroCodeEnvironment
+from d810.emulator_Interpreter import SymbolicMicroCodeEnvironment
 from d810.generic import GenericDispatcherInfo
 from d810.generic import GenericDispatcherBlockInfo
 from d810.hexrays_formatters import format_mop_t, format_minsn_t

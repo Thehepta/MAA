@@ -1,9 +1,11 @@
 from __future__ import annotations
 import logging
 from typing import List, Union, Tuple, Dict, Optional
+
+from d810.emulator.Environment import SymbolicMicroCodeEnvironment
+from d810.emulator.Interpreter import SymbolicMicroCodeInterpreter
 from ida_hexrays import *
 
-from d810.emulator import SymbolicMicroCodeInterpreter, SymbolicMicroCodeEnvironment
 from d810.symbolic_expr import Expr, ExprInt, ExprId
 from d810.cfg_utils import change_1way_block_successor, change_2way_block_conditional_successor, duplicate_block
 from d810.hexrays_hooks import InstructionDefUseCollector

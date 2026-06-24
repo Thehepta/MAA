@@ -7,9 +7,10 @@ identifiers that propagate through operations. Expressions are simplified on the
 """
 from __future__ import annotations
 import logging
-from typing import List, Union, Optional, Dict
+from typing import  Optional
+from d810.utils import unsigned_to_signed, signed_to_unsigned,ror
 
-from d810.utils import get_mop_name
+from d810.emulator.Environment import SymbolicMicroCodeEnvironment
 from ida_bytes import get_qword
 from ida_hexrays import (
     minsn_t, mblock_t, mop_t,
@@ -40,207 +41,6 @@ from d810.errors import EmulationException, EmulationIndirectJumpException, Unsu
 symb_log = logging.getLogger('D810.emulator')
 
 
-class SymbolicMopMapping:
-    """Maps mop_t objects to symbolic expressions (Expr)."""
-
-    def __init__(self):
-        self.mops: List[mop_t] = []
-        self.mop_values: List[Expr] = []
-
-    def __setitem__(self, mop: mop_t, value: Expr):
-        mop_index = get_mop_index(mop, self.mops)
-        if mop_index != -1:
-            self.mop_values[mop_index] = value
-            return
-        self.mops.append(mop)
-        self.mop_values.append(value)
-
-    def __getitem__(self, mop: mop_t) -> Optional[Expr]:
-        mop_index = get_mop_index(mop, self.mops)
-        if mop_index == -1:
-            return None
-        return self.mop_values[mop_index]
-
-    def __len__(self):
-        return len(self.mops)
-
-    def __delitem__(self, mop: mop_t):
-        mop_index = get_mop_index(mop, self.mops)
-        if mop_index == -1:
-            raise KeyError
-        del self.mops[mop_index]
-        del self.mop_values[mop_index]
-
-    def __contains__(self, mop: mop_t) -> bool:
-        return get_mop_index(mop, self.mops) != -1
-
-    def clear(self):
-        self.mops = []
-        self.mop_values = []
-
-    def copy(self) -> SymbolicMopMapping:
-        new_mapping = SymbolicMopMapping()
-        for mop, value in zip(self.mops, self.mop_values):
-            new_mapping.mops.append(mop)
-            new_mapping.mop_values.append(value)
-        return new_mapping
-
-    def items(self):
-        return list(zip(self.mops, self.mop_values))
-
-
-class SymbolicMicroCodeEnvironment:
-    """
-    Symbolic environment mapping microcode operands to symbolic expressions.
-
-    Unlike MicroCodeEnvironment which maps mop_t -> int and crashes on undefined,
-    this environment maps mop_t -> Expr and returns a fresh symbolic variable
-    when a mop is not defined.
-    """
-
-    def __init__(self):
-        self.mop_r_record = SymbolicMopMapping()
-        self.mop_S_record = SymbolicMopMapping()
-        self.mop_v_record = SymbolicMopMapping()
-
-        self.cur_blk: Optional[mblock_t] = None
-        self.cur_ins: Optional[minsn_t] = None
-        self.next_blk: Optional[mblock_t] = None
-        self.next_ins: Optional[minsn_t] = None
-
-        # 符号化跳转目标，类似 Miasm 的 IRDst
-        # 具体跳转: ExprInt(serial, 4)
-        # 条件跳转: ExprCond(cond, ExprInt(target), ExprInt(fallthrough))
-        self.irdst: Optional[Expr] = None
-
-        # Counter for generating unique symbol names
-        self._symbol_counter = 0
-
-    def _gen_symbol_name(self, prefix: str) -> str:
-        """Generate a unique symbol name."""
-        self._symbol_counter += 1
-        return "{}_{}".format(prefix, self._symbol_counter)
-
-    def get_copy(self) -> SymbolicMicroCodeEnvironment:
-        """Create a full copy of this environment (all records are copied)."""
-        new_env = SymbolicMicroCodeEnvironment()
-        new_env.mop_r_record = self.mop_r_record.copy()
-        new_env.mop_S_record = self.mop_S_record.copy()
-        new_env.mop_v_record = self.mop_v_record.copy()
-        new_env.cur_blk = self.cur_blk
-        new_env.cur_ins = self.cur_ins
-        new_env.next_blk = self.next_blk
-        new_env.next_ins = self.next_ins
-        new_env.irdst = self.irdst
-        new_env._symbol_counter = self._symbol_counter
-        return new_env
-
-    def set_cur_flow(self, cur_blk: mblock_t, cur_ins: minsn_t):
-        self.cur_blk = cur_blk
-        self.cur_ins = cur_ins
-        self.next_blk = cur_blk
-        if self.cur_ins is None:
-            self.next_blk = self.cur_blk.mba.get_mblock(self.cur_blk.serial + 1)
-            self.next_ins = self.next_blk.head
-        else:
-            self.next_ins = self.cur_ins.next
-            if self.next_ins is None:
-                self.next_blk = self.cur_blk.mba.get_mblock(self.cur_blk.serial + 1)
-                self.next_ins = self.next_blk.head
-        symb_log.debug("Setting next block {0} and next ins {1}".format(
-            self.next_blk.serial, format_minsn_t(self.next_ins)))
-
-    def set_next_flow(self, next_blk: mblock_t, next_ins: minsn_t):
-        self.next_blk = next_blk
-        self.next_ins = next_ins
-
-    def define(self, mop: mop_t, value: Expr):
-        """Define a mop's symbolic value."""
-        if mop.t == mop_r:
-            self.mop_r_record[mop] = value
-        elif mop.t == mop_S:
-            self.mop_S_record[mop] = value
-        elif mop.t == mop_v:
-            self.mop_v_record[mop] = value
-        else:
-            raise UnsupportedMopException("Defining unsupported mop type '{0}': '{1}'".format(
-                mop_type_to_string(mop.t), format_mop_t(mop)))
-
-
-    def define_concrete(self, mop: mop_t, value: int):
-        """Define a mop with a concrete integer value."""
-        size = mop.size if mop.size > 0 else 8
-        self.define(mop, ExprInt(value, size))
-
-    def lookup(self, mop: mop_t, create_symbol: bool = True) -> Expr:
-        """
-        Look up a mop's symbolic value.
-        If not found and create_symbol is True, returns a fresh symbolic variable.
-        """
-        result = None
-        if mop.t == mop_r:
-            result = self.mop_r_record[mop]
-        elif mop.t == mop_S:
-            result = self.mop_S_record[mop]
-        elif mop.t == mop_v:
-            result = self.mop_v_record[mop]
-
-        if result is not None:
-            return result
-
-        # Not found: create a fresh symbolic variable
-        if create_symbol:
-            size = mop.size if mop.size > 0 else 8
-            name = get_mop_name(mop)
-            symbol = ExprId(name, size)
-            symb_log.debug("Created symbolic variable for undefined mop: {0}".format(name))
-            return symbol
-
-        return None
-
-    def assign(self, mop: mop_t, value: Expr):
-        """Assign a value to a mop (lookup + update or create)."""
-        self.define(mop, value)
-
-
-    def dump(self):
-        """
-        将环境中所有已定义的符号值输出到 IDA 控制台。
-        格式: mop_name = expr_value
-        """
-        print("=" * 60)
-        print("SymbolicMicroCodeEnvironment dump")
-        print("=" * 60)
-        if self.irdst is not None:
-            print("IRDst: {0}".format(self.irdst))
-        next_blk = self.next_blk
-        if isinstance(next_blk, mblock_t):
-            print("next_blk:", next_blk.serial)
-        else:
-            print("next_blk is None")
-
-        if len(self.mop_r_record) > 0:
-            print("[Registers]")
-            for mop, value in self.mop_r_record.items():
-                name = get_mop_name(mop)
-                print("  {0} = {1}".format(name, value))
-        if len(self.mop_S_record) > 0:
-            print("[Stack Variables]")
-            for mop, value in self.mop_S_record.items():
-                name = get_mop_name(mop)
-                print("  {0} = {1}".format(name, value))
-        if len(self.mop_v_record) > 0:
-            print("[Global Variables]")
-            for mop, value in self.mop_v_record.items():
-                name = get_mop_name(mop)
-                print("  {0} = {1}".format(name, value))
-
-        total = len(self.mop_r_record) + len(self.mop_S_record) + len(self.mop_v_record)
-        print("-" * 60)
-        print("Total: {0} entries".format(total))
-        print("=" * 60)
-
-
 class SymbolicMicroCodeInterpreter:
     """
     Symbolic execution engine for IDA microcode.
@@ -259,7 +59,7 @@ class SymbolicMicroCodeInterpreter:
         res = self._eval_instruction(ins, environment)
         if res is not None:
             if (ins.d is not None) and ins.d.t != mop_z:
-                environment.assign(ins.d, res)
+                environment.define(ins.d, res)
         return res
 
     def _eval_instruction(self, ins: minsn_t, environment: SymbolicMicroCodeEnvironment) -> Optional[Expr]:
@@ -300,7 +100,6 @@ class SymbolicMicroCodeInterpreter:
             # Sign-extend
             arg = self.eval(ins.l, environment)
             if arg.is_int():
-                from d810.utils import unsigned_to_signed, signed_to_unsigned
                 signed_val = unsigned_to_signed(arg.as_int(), ins.l.size)
                 return ExprInt(signed_to_unsigned(signed_val, res_size) & _size_mask(res_size), res_size)
             return simplify(ExprOp('xds', [arg], res_size))
@@ -405,12 +204,6 @@ class SymbolicMicroCodeInterpreter:
         # Zero extend - keep as-is for symbolic (size info is in the expr)
         return simplify(ExprOp('xdu', [expr], size))
 
-    @staticmethod
-    def _get_blk_serial(mop: mop_t) -> int:
-        if mop.t == mop_b:
-            return mop.b
-        raise EmulationException("Get block serial with unsupported mop type '{0}': '{1}'"
-                                 .format(mop_type_to_string(mop.t), format_mop_t(mop)))
 
     def _eval_conditional_jump_cond(self, ins: minsn_t, environment: SymbolicMicroCodeEnvironment) -> Optional[Expr]:
         """
@@ -462,7 +255,7 @@ class SymbolicMicroCodeInterpreter:
 
         cond = self._eval_conditional_jump_cond(ins, environment)
         if cond is not None:
-            target_serial = self._get_blk_serial(ins.d)
+            target_serial = ins.d.b
             fallthrough_serial = cur_blk.serial + 1
 
             if cond.is_int():
@@ -485,7 +278,7 @@ class SymbolicMicroCodeInterpreter:
             return True
 
         if ins.opcode == m_goto:
-            next_blk_serial = self._get_blk_serial(ins.l)
+            next_blk_serial = ins.l.b
             next_blk = cur_blk.mba.get_mblock(next_blk_serial)
             next_ins = next_blk.head
             environment.set_next_flow(next_blk, next_ins)
@@ -546,7 +339,6 @@ class SymbolicMicroCodeInterpreter:
             data_1 = self.eval(args_list.f.args[0], environment)
             data_2 = self.eval(args_list.f.args[1], environment)
             if data_1.is_int() and data_2.is_int():
-                from d810.utils import ror
                 result = ror(data_1.as_int(), data_2.as_int(), 8 * args_list.f.args[0].size)
                 return ExprInt(result & _size_mask(res_size), res_size)
             return simplify(ExprOp('ror', [data_1, data_2], res_size))
@@ -659,31 +451,6 @@ class SymbolicMicroCodeInterpreter:
             mop_type_to_string(mop.t), format_mop_t(mop)))
         return ExprId("mop_{}".format(format_mop_t(mop)), size)
 
-    def eval_instruction(self, blk: mblock_t, ins: minsn_t,
-                         environment: Optional[SymbolicMicroCodeEnvironment] = None,
-                         raise_exception: bool = False) -> bool:
-        """
-        Evaluate a single instruction symbolically.
-        Returns True on success, False on failure.
-        """
-        try:
-            if environment is None:
-                environment = self.global_environment
-            symb_log.info("Evaluating symbolically: '{0}'".format(format_minsn_t(ins)))
-            if ins is None:
-                return False
-            self._eval_instruction_and_update_environment(blk, ins, environment)
-            return True
-        except EmulationException as e:
-            symb_log.warning("Can't evaluate instruction: '{0}': {1}".format(format_minsn_t(ins), e))
-            if raise_exception:
-                raise e
-        except Exception as e:
-            symb_log.warning("Error during evaluation of: '{0}': {1}".format(format_minsn_t(ins), e))
-            if raise_exception:
-                raise e
-        return False
-
     def eval_mop(self, mop: mop_t, environment: Optional[SymbolicMicroCodeEnvironment] = None) -> Expr:
         """
         Evaluate a mop and return symbolic expression.
@@ -693,11 +460,50 @@ class SymbolicMicroCodeInterpreter:
             environment = self.global_environment
         return self.eval(mop, environment)
 
-    def eval_mop_concrete(self, mop: mop_t,
-                          environment: Optional[SymbolicMicroCodeEnvironment] = None) -> Optional[int]:
+    def eval_instruction(self, blk: mblock_t, ins: minsn_t,
+                         environment: Optional[SymbolicMicroCodeEnvironment] = None,
+                         raise_exception: bool = False) -> Optional[Expr|None]:
         """
-        Evaluate a mop and return concrete value if available, None if symbolic.
-        Backward compatible with MicroCodeInterpreter.eval_mop.
+        Evaluate a single instruction symbolically.
+        Returns True on success, False on failure.
         """
-        result = self.eval_mop(mop, environment)
-        return result.as_int()
+        try:
+            if environment is None:
+                environment = self.global_environment
+            symb_log.info("Evaluating symbolically: '{0}'".format(format_minsn_t(ins)))
+            if ins is None:
+                return None
+            return self._eval_instruction_and_update_environment(blk, ins, environment)
+        except EmulationException as e:
+            symb_log.warning("Can't evaluate instruction: '{0}': {1}".format(format_minsn_t(ins), e))
+            if raise_exception:
+                raise e
+        except Exception as e:
+            symb_log.warning("Error during evaluation of: '{0}': {1}".format(format_minsn_t(ins), e))
+            if raise_exception:
+                raise e
+        return None
+
+    def eval_blk(self, current_block, microcode_environment: Optional[SymbolicMicroCodeEnvironment] = None):
+        """
+        对单个基本块做符号执行。
+
+        顺序求值块内每一条指令，直到块尾。遇到控制流指令时，
+        eval_instruction 会把（可能是符号化的）跳转目标写入
+        microcode_environment.irdst，本函数不跟随跳转、也不清空 irdst，
+        而是将其原样保留在环境中供调用方做后续分析。
+        """
+        if microcode_environment is None:
+            microcode_environment = SymbolicMicroCodeEnvironment()
+
+        cur_ins = current_block.head
+        while cur_ins is not None:
+            symb_log.debug(cur_ins.dstr())
+            self.eval_instruction(current_block, cur_ins, microcode_environment)
+            cur_ins = cur_ins.next
+
+        if microcode_environment.irdst is None:
+            microcode_environment.irdst = current_block
+
+
+        return microcode_environment
