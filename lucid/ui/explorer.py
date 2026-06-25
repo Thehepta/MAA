@@ -690,29 +690,17 @@ class MicrocodeView(ida_kernwin.simplecustviewer_t):
     def OnPopup(self, form, popup_handle):
         controller = self.controller
 
-        #
-        # so, i'm pretty picky about my UI / interactions. IDA puts items in
-        # the right click context menus of custom (code) viewers.
-        #
-        # these items aren't really relevant (imo) to the microcode viewer,
-        # so I do some dirty stuff here to filter them out and ensure only
-        # my items will appear in the context menu.
-        #
-        # there's only one right click context item right now, but in the
-        # future i'm sure there will be more.
-        #
-
         class FilterMenu(QtCore.QObject):
             def __init__(self, qmenu):
-                super(QtCore.QObject, self).__init__()
+                super().__init__()
                 self.qmenu = qmenu
 
             def eventFilter(self, obj, event):
                 if event.type() != QtCore.QEvent.Polish:
                     return False
-                for action in self.qmenu.actions():
-                    if action.text() in ["&Font...", "&Synchronize with"]: # lol..
-                        qmenu.removeAction(action)
+                for action in list(self.qmenu.actions()):
+                    if action.text() in ["&Font...", "&Synchronize with"]:
+                        self.qmenu.removeAction(action)
                 self.qmenu.removeEventFilter(self)
                 self.qmenu = None
                 return True
@@ -722,7 +710,6 @@ class MicrocodeView(ida_kernwin.simplecustviewer_t):
         self.filter = FilterMenu(qmenu)
         qmenu.installEventFilter(self.filter)
 
-        # only handle right clicks on lines containing micro instructions
         ins_token = self.model.mtext.get_ins_for_line(self.model.current_line)
         if not ins_token:
             return False
@@ -730,15 +717,14 @@ class MicrocodeView(ida_kernwin.simplecustviewer_t):
         class MyHandler(ida_kernwin.action_handler_t):
             def activate(self, ctx):
                 controller.show_subtree(ins_token)
+
             def update(self, ctx):
                 return ida_kernwin.AST_ENABLE_ALWAYS
 
-        # inject the 'View subtree' action into the right click context menu
         desc = ida_kernwin.action_desc_t(None, 'View subtree', MyHandler())
         ida_kernwin.attach_dynamic_action_to_popup(form, popup_handle, desc, None)
 
         return True
-
 
     def OnKeydown(self, vkey, shift):
         if vkey == ord("G"):
