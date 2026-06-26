@@ -3,18 +3,48 @@ from PySide6 import QtWidgets, QtCore, QtGui
 from d810.utils import get_mop_name
 
 
+def str_to_num(s: str, default=None):
+    try:
+        s = s.strip()
+        sign = 1
+        if s.startswith("-"):
+            sign = -1
+            s = s[1:]
+        elif s.startswith("+"):
+            s = s[1:]
+
+        if s.startswith(("0x", "0X")):
+            val = int(s, 16)
+        elif s.startswith(("0b", "0B")):
+            val = int(s, 2)
+        elif s.startswith(("0o", "0O")):
+            val = int(s, 8)
+        else:
+            val = int(s)
+        return sign * val
+    except (ValueError, TypeError, AttributeError):
+        return default
+
+
 class MopResultWrapper:
     """
     专门解决 mop_t 不可哈希问题的返回结果包装类。
     """
+
     def __init__(self, variables_list, mop_mapping):
         self.data = {}
         for name, value, numeral, size in variables_list:
-            mop_obj = mop_mapping.get(name)
-            self.data[name] = {
-                "mop": mop_obj,    # 这里存的是货真价实的 mop_t 对象（或者是 None）
-                "value": value     # 用户输入的值
-            }
+            if value == "None":
+                continue
+            try:
+                valueNum = str_to_num(value)
+                mop_obj = mop_mapping.get(name)
+                self.data[name] = {
+                    "mop": mop_obj,  # 这里存的是货真价实的 mop_t 对象（或者是 None）
+                    "value": valueNum  # 用户输入的值
+                }
+            except (ValueError, TypeError, AttributeError):
+                continue
 
     def items(self):
         """
@@ -32,6 +62,17 @@ class MopResultWrapper:
         if name in self.data:
             return self.data[name]["value"]
         return None
+
+    def __str__(self):
+        lines = []
+        for name, info in self.data.items():
+            mop = info["mop"]
+            val = info["value"]
+            if mop is not None:
+                lines.append(f"{name} -> MOP({mop}) = {val}")
+            else:
+                lines.append(f"{name} -> [no mop] = {val}")
+        return "\n".join(lines)
 
 
 class PureModalPatchChooser(QtWidgets.QDialog):
@@ -92,10 +133,6 @@ class PureModalPatchChooser(QtWidgets.QDialog):
                 item = QtWidgets.QTableWidgetItem(str(val))
                 item.setTextAlignment(QtCore.Qt.AlignmentFlag.AlignCenter)
                 self.table.setItem(row, col, item)
-
-        # ---- 进制下拉代理（双击进制列可切 10/16） ----
-        self._base_delegate = _BaseComboDelegate(self)
-        self.table.setItemDelegateForColumn(self.COL_BASE, self._base_delegate)
 
         # ---- 按钮：执行 / 取消 ----
         btn_exec = QtWidgets.QPushButton("执行")
@@ -169,7 +206,7 @@ class PureModalPatchChooser(QtWidgets.QDialog):
         new_val, ok = QtWidgets.QInputDialog.getText(
             self,
             f"修改 [{var_name}]",
-            f"请输入 MOP [{var_name}] 的新修补值 (当前进制={current_base}):",
+            f"请输入 MOP [{var_name}] 的新修补值 (自动转为16进制):",
             text=str(current_val),
         )
         if not ok:
@@ -180,8 +217,8 @@ class PureModalPatchChooser(QtWidgets.QDialog):
             value_item.setText("None")
             return
         try:
-            actual_int = int(new_val_stripped, current_base)
-            value_item.setText(str(actual_int))
+            actual_int = str_to_num(new_val_stripped)
+            value_item.setText(hex(actual_int))
         except ValueError:
             QtWidgets.QMessageBox.warning(
                 self,
@@ -201,22 +238,3 @@ class PureModalPatchChooser(QtWidgets.QDialog):
             size = self.table.item(row, self.COL_SIZE).text()
             variables_list.append([name, value, numeral, size])
         return MopResultWrapper(variables_list, self.mop_mapping)
-
-
-class _BaseComboDelegate(QtWidgets.QStyledItemDelegate):
-    """进制列的下拉代理，双击可在 10 / 16 之间切换"""
-    BASES = ["10", "16"]
-
-    def createEditor(self, parent, option, index):
-        combo = QtWidgets.QComboBox(parent)
-        combo.addItems(self.BASES)
-        current = index.data(QtCore.Qt.ItemDataRole.DisplayRole)
-        idx = self.BASES.index(current) if current in self.BASES else 0
-        combo.setCurrentIndex(idx)
-        return combo
-
-    def setModelData(self, editor, model, index):
-        model.setData(index, editor.currentText(), QtCore.Qt.ItemDataRole.EditRole)
-
-    def updateEditorGeometry(self, editor, option, index):
-        editor.setGeometry(option.rect)

@@ -176,7 +176,6 @@ class ExprId(Expr):
     def copy(self) -> ExprId:
         return ExprId(self._name, self._size)
 
-
 class ExprMem(Expr):
     """Memory access expression: @size[addr_expr]."""
 

@@ -1,9 +1,9 @@
 from __future__ import annotations
 import logging
-from typing import List, Union, Tuple, Dict, Optional
+from typing import Dict, Optional
 
-from d810.emulator.Environment import SymbolicMicroCodeEnvironment
-from d810.emulator.Interpreter import SymbolicMicroCodeInterpreter
+from d810.Environment import SymbolicMicroCodeEnvironment
+from d810.Interpreter import SymbolicMicroCodeInterpreter
 from ida_hexrays import *
 
 from d810.symbolic_expr import Expr, ExprInt, ExprId

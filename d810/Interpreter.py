@@ -10,12 +10,11 @@ import logging
 from typing import  Optional
 from d810.utils import unsigned_to_signed, signed_to_unsigned,ror
 
-from d810.emulator.Environment import SymbolicMicroCodeEnvironment
+from d810.Environment import SymbolicMicroCodeEnvironment
 from ida_bytes import get_qword
 from ida_hexrays import (
     minsn_t, mblock_t, mop_t,
-    mop_z, mop_r, mop_n, mop_d, mop_S, mop_v, mop_a, mop_b, mop_h, mop_f,
-    m_mov, m_neg, m_lnot, m_bnot, m_xds, m_xdu, m_low, m_high,
+    mop_z, mop_r, mop_n, mop_d, mop_S, mop_v, mop_a, mop_h, m_mov, m_neg, m_lnot, m_bnot, m_xds, m_xdu, m_low, m_high,
     m_add, m_sub, m_mul, m_udiv, m_sdiv, m_umod, m_smod,
     m_or, m_and, m_xor, m_shl, m_shr, m_sar,
     m_cfadd, m_ofadd, m_sets, m_seto, m_setp,
@@ -23,20 +22,19 @@ from ida_hexrays import (
     m_setg, m_setge, m_setl, m_setle,
     m_jcnd, m_jnz, m_jz, m_jae, m_jb, m_ja, m_jbe,
     m_jg, m_jge, m_jl, m_jle, m_jtbl, m_ijmp, m_goto,
-    m_call, m_icall, m_ldx, m_stx,get_mreg_name,
-)
+    m_call, m_icall, m_ldx, m_stx, )
 from ida_segment import getseg, SEGPERM_WRITE
 
 from d810.symbolic_expr import (
     Expr, ExprInt, ExprId, ExprMem, ExprOp,
-    ExprSlice, ExprCompose, ExprCond, _size_mask
+    ExprSlice, ExprCond, _size_mask
 )
 from d810.symbolic_simplifier import simplify, unsigned_to_signed
-from d810.hexrays_helpers import equal_mops_ignore_size, get_mop_index, AND_TABLE, CONTROL_FLOW_OPCODES, \
+from d810.hexrays_helpers import CONTROL_FLOW_OPCODES, \
     CONDITIONAL_JUMP_OPCODES
 from d810.hexrays_formatters import format_minsn_t, format_mop_t, mop_type_to_string, opcode_to_string
 from d810.cfg_utils import get_block_serials_by_address
-from d810.errors import EmulationException, EmulationIndirectJumpException, UnsupportedMopException
+from d810.errors import EmulationException, EmulationIndirectJumpException
 
 symb_log = logging.getLogger('D810.emulator')
 
@@ -53,20 +51,19 @@ class SymbolicMicroCodeInterpreter:
     def __init__(self, global_environment: Optional[SymbolicMicroCodeEnvironment] = None):
         self.global_environment = SymbolicMicroCodeEnvironment() if global_environment is None else global_environment
 
-    def _eval_instruction_and_update_environment(self, blk: mblock_t, ins: minsn_t,
+    def _eval_instruction_and_update_environment(self, blk: mblock_t,ins: minsn_t,
                                                   environment: SymbolicMicroCodeEnvironment) -> Optional[Expr]:
-        environment.set_cur_flow(blk, ins)
-        res = self._eval_instruction(ins, environment)
+        res = self._eval_instruction(blk,ins, environment)
         if res is not None:
             if (ins.d is not None) and ins.d.t != mop_z:
                 environment.define(ins.d, res)
         return res
 
-    def _eval_instruction(self, ins: minsn_t, environment: SymbolicMicroCodeEnvironment) -> Optional[Expr]:
+    def _eval_instruction(self,blk: mblock_t, ins: minsn_t, environment: SymbolicMicroCodeEnvironment) -> Optional[Expr]:
         if ins is None:
             return None
 
-        is_flow_instruction = self._eval_control_flow_instruction(ins, environment)
+        is_flow_instruction = self._eval_control_flow_instruction(blk,ins, environment)
         if is_flow_instruction:
             return None
 
@@ -80,7 +77,7 @@ class SymbolicMicroCodeInterpreter:
         res_size = ins.d.size if ins.d.size > 0 else 8
 
         if ins.opcode == m_ldx:
-            return self._eval_load(ins, environment)
+            return self._eval_load(blk,ins, environment)
         elif ins.opcode == m_stx:
             return self._eval_store(ins, environment)
 
@@ -245,10 +242,9 @@ class SymbolicMicroCodeInterpreter:
         else:
             raise EmulationException("Unhandled conditional jump:  '{0}'".format(format_minsn_t(ins)))
 
-    def _eval_control_flow_instruction(self, ins: minsn_t, environment: SymbolicMicroCodeEnvironment) -> bool:
+    def _eval_control_flow_instruction(self,cur_blk: mblock_t, ins: minsn_t, environment: SymbolicMicroCodeEnvironment) -> bool:
         if ins.opcode not in CONTROL_FLOW_OPCODES:
             return False
-        cur_blk = environment.cur_blk
         if cur_blk is None:
             raise EmulationException("Can't evaluate control flow instruction with null block: '{0}'"
                                      .format(format_minsn_t(ins)))
@@ -264,9 +260,6 @@ class SymbolicMicroCodeInterpreter:
                     next_blk_serial = target_serial
                 else:
                     next_blk_serial = fallthrough_serial
-                next_blk = cur_blk.mba.get_mblock(next_blk_serial)
-                next_ins = next_blk.head
-                environment.set_next_flow(next_blk, next_ins)
                 environment.irdst = ExprInt(next_blk_serial, 4)
             else:
                 # 条件是符号的：构建 ExprCond 跳转目标
@@ -279,9 +272,6 @@ class SymbolicMicroCodeInterpreter:
 
         if ins.opcode == m_goto:
             next_blk_serial = ins.l.b
-            next_blk = cur_blk.mba.get_mblock(next_blk_serial)
-            next_ins = next_blk.head
-            environment.set_next_flow(next_blk, next_ins)
             environment.irdst = ExprInt(next_blk_serial, 4)
             return True
 
@@ -304,7 +294,7 @@ class SymbolicMicroCodeInterpreter:
                 symb_log.debug("ijmp destination is symbolic, cannot resolve")
                 return False
             ijmp_dest_ea = dest_expr.as_int()
-            dest_block_serials = get_block_serials_by_address(environment.cur_blk.mba, ijmp_dest_ea)
+            dest_block_serials = get_block_serials_by_address(cur_blk.mba, ijmp_dest_ea)
             if len(dest_block_serials) == 0:
                 raise EmulationIndirectJumpException(
                     "No blocks found at address {0:x}".format(ijmp_dest_ea),
@@ -319,9 +309,6 @@ class SymbolicMicroCodeInterpreter:
 
         if next_blk_serial is None:
             return False
-        next_blk = cur_blk.mba.get_mblock(next_blk_serial)
-        next_ins = next_blk.head
-        environment.set_next_flow(next_blk, next_ins)
         environment.irdst = ExprInt(next_blk_serial, 4)
         return True
 
@@ -348,7 +335,7 @@ class SymbolicMicroCodeInterpreter:
         # Unknown helper: return symbolic
         return ExprId("call_{}".format(helper_name), res_size)
 
-    def _eval_load(self, ins: minsn_t, environment: SymbolicMicroCodeEnvironment) -> Optional[Expr]:
+    def _eval_load(self, cur_blk:mblock_t,ins: minsn_t, environment: SymbolicMicroCodeEnvironment) -> Optional[Expr]:
         """Evaluate memory load symbolically."""
         res_size = ins.d.size if ins.d.size > 0 else 8
         addr_expr = self.eval(ins.r, environment)
@@ -360,7 +347,7 @@ class SymbolicMicroCodeInterpreter:
                 if addr_expr.is_int():
                     stack_mop = mop_t()
                     stack_mop.erase()
-                    stack_mop._make_stkvar(environment.cur_blk.mba, addr_expr.as_int())
+                    stack_mop._make_stkvar(cur_blk.mba, addr_expr.as_int())
                     result = environment.lookup(stack_mop)
                     return self._apply_size(result, res_size)
                 # Symbolic stack address
@@ -473,7 +460,7 @@ class SymbolicMicroCodeInterpreter:
             symb_log.info("Evaluating symbolically: '{0}'".format(format_minsn_t(ins)))
             if ins is None:
                 return None
-            return self._eval_instruction_and_update_environment(blk, ins, environment)
+            return self._eval_instruction_and_update_environment(blk,ins, environment)
         except EmulationException as e:
             symb_log.warning("Can't evaluate instruction: '{0}': {1}".format(format_minsn_t(ins), e))
             if raise_exception:
@@ -495,7 +482,6 @@ class SymbolicMicroCodeInterpreter:
         """
         if microcode_environment is None:
             microcode_environment = SymbolicMicroCodeEnvironment()
-
         cur_ins = current_block.head
         while cur_ins is not None:
             symb_log.debug(cur_ins.dstr())
@@ -503,7 +489,7 @@ class SymbolicMicroCodeInterpreter:
             cur_ins = cur_ins.next
 
         if microcode_environment.irdst is None:
-            microcode_environment.irdst = current_block
+            microcode_environment.irdst = ExprInt(current_block.serial + 1, 4)
 
 
         return microcode_environment

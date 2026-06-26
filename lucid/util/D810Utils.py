@@ -1,23 +1,18 @@
-import logging
 from typing import List, Tuple
 
 import ida_hexrays
-import ida_idp
-from d810.emulator.Environment import SymbolicMicroCodeEnvironment
-from d810.emulator.Interpreter import SymbolicMicroCodeInterpreter
+from d810.Environment import SymbolicMicroCodeEnvironment
+from d810.Interpreter import SymbolicMicroCodeInterpreter
 from d810.generic import GenericDispatcherInfo
 from d810.generic import GenericDispatcherBlockInfo
-from d810.hexrays_helpers import append_mop_if_not_in_list, extract_num_mop, CONTROL_FLOW_OPCODES
+from d810.hexrays_helpers import append_mop_if_not_in_list, extract_num_mop
 from d810.hexrays_hooks import InstructionDefUseCollector
 from d810.symbolic_expr import ExprInt
 
-from ida_hexrays import mblock_t, mop_t, optblock_t, minsn_visitor_t, mbl_array_t
+from ida_hexrays import mblock_t, mop_t
 import ida_hexrays as hr
-import ida_kernwin as kw
-
 
 from d810.tracker import MopTracker, remove_segment_registers
-from d810.utils import NotResolvableFatherException, get_all_possibles_values
 
 FLATTENING_JUMP_OPCODES = [hr.m_jnz, hr.m_jz, hr.m_jae, hr.m_jb, hr.m_ja, hr.m_jbe, hr.m_jg, hr.m_jge, hr.m_jl,
                            hr.m_jle]
@@ -196,7 +191,7 @@ def get_block_top_level_inputs_for_mop(mblock) -> list:
     last_insn.for_all_ops(collector)
 
     ins_mop_info = collector.unresolved_ins_mops + collector.memory_unresolved_ins_mops
-    condition_uses  = remove_segment_registers(ins_mop_info.unresolved_ins_mops)
+    condition_uses = remove_segment_registers(ins_mop_info.unresolved_ins_mops)
 
     if not condition_uses:
         print(f"--- Block {mblock.serial} 条件跳转没有使用变量 ---")
@@ -243,19 +238,18 @@ def get_block_top_level_inputs_for_mop(mblock) -> list:
 
 
 def get_block_top_level_inputs(mblock) -> list:
-
     entry_block = GenericDispatcherBlockInfo(mblock)
     entry_block.parse()
     return entry_block.use_before_def_list
 
 
 def eval_current_blk(current_block, environment_values):
-    print("eval_blk serial:", hex(current_block.serial))
     microcode_interpreter = SymbolicMicroCodeInterpreter()
-    microcode_environment = microcode_interpreter.eval_blk(current_block)
+    microcode_environment = SymbolicMicroCodeEnvironment()
+    for mop, valueNum in environment_values.items():
+        microcode_environment.define(mop, ExprInt(valueNum, mop.size))
+    microcode_interpreter.eval_blk(current_block,microcode_environment)
     microcode_environment.dump()
-
-
 
 
 def eva_blks(start_block, microcode_environment: SymbolicMicroCodeEnvironment,

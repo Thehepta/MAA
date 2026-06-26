@@ -1,15 +1,13 @@
 import logging
 from typing import List, Tuple
 
-from d810.emulator.Environment import SymbolicMicroCodeEnvironment
-from d810.emulator.Interpreter import SymbolicMicroCodeInterpreter
+from d810.Environment import SymbolicMicroCodeEnvironment
+from d810.Interpreter import SymbolicMicroCodeInterpreter
 from d810.hexrays_formatters import format_minsn_t, format_mop_list, format_mop_t
 from d810.hexrays_helpers import append_mop_if_not_in_list, get_mop_index, CONDITIONAL_JUMP_OPCODES, extract_num_mop
 from d810.hexrays_hooks import InstructionDefUseCollector
 from d810.tracker import remove_segment_registers, SymbolicMopHistory
 from ida_hexrays import mop_t, minsn_t, mblock_t, mbl_array_t
-
-from d810.utils import NotResolvableFatherException
 
 unflat_logger = logging.getLogger('D810.unflat')
 
@@ -172,7 +170,6 @@ class GenericDispatcherInfo(object):
             # We evaluate the current instruction of the dispatcher to determine
             # which block and instruction should be executed next
             microcode_interpreter.eval_blk(cur_blk)
-
             instructions_executed.append(cur_ins)
             cur_blk = microcode_environment.next_blk
             cur_ins = microcode_environment.next_ins
