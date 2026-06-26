@@ -1,6 +1,6 @@
 from typing import List, Optional
 from d810.hexrays_helpers import get_mop_index
-from d810.symbolic_expr import Expr
+from d810.Expr import Expr
 from ida_hexrays import mop_t
 
 

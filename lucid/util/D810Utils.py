@@ -7,7 +7,7 @@ from d810.generic import GenericDispatcherInfo
 from d810.generic import GenericDispatcherBlockInfo
 from d810.hexrays_helpers import append_mop_if_not_in_list, extract_num_mop
 from d810.hexrays_hooks import InstructionDefUseCollector
-from d810.symbolic_expr import ExprInt
+from d810.Expr import ExprInt
 
 from ida_hexrays import mblock_t, mop_t
 import ida_hexrays as hr

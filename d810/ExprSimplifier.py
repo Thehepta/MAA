@@ -8,7 +8,7 @@ from __future__ import annotations
 import logging
 from typing import Optional
 
-from d810.symbolic_expr import (
+from d810.Expr import (
     Expr, ExprInt, ExprId, ExprMem, ExprOp,
     ExprSlice, ExprCompose, ExprCond, _size_mask
 )

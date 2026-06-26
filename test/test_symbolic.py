@@ -13,12 +13,12 @@ import os
 # Add parent directory to path so we can import d810 modules
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from d810.symbolic_expr import (
+from d810.Expr import (
     Expr, ExprInt, ExprId, ExprMem, ExprOp,
     ExprSlice, ExprCompose, ExprCond, _size_mask,
     expr_int, expr_id, expr_op, expr_mem
 )
-from d810.symbolic_simplifier import simplify
+from d810.ExprSimplifier import simplify
 
 
 def test_expr_int_basic():

@@ -13,13 +13,13 @@ from d810.SymMopMap import SymMopMap
 from d810.utils import get_mop_name
 from ida_hexrays import (
     mblock_t, mop_t,
-    mop_r, mop_S, mop_v,
+    mop_r, mop_S, mop_v, mop_f,
 )
 
-from d810.symbolic_expr import (
+from d810.Expr import (
     Expr, ExprId, ExprOp,
 )
-from d810.symbolic_simplifier import simplify
+from d810.ExprSimplifier import simplify
 from d810.hexrays_formatters import format_mop_t, mop_type_to_string
 from d810.errors import UnsupportedMopException
 
@@ -79,7 +79,7 @@ class SymbolicMicroCodeEnvironment:
 
     def define(self, mop: mop_t, value: Expr):
         """Define a mop's symbolic value."""
-        if mop.t in (mop_r, mop_S, mop_v):
+        if mop.t in (mop_r, mop_S, mop_v,mop_f):
             self.mop_record[mop] = value
         else:
             raise UnsupportedMopException("Defining unsupported mop type '{0}': '{1}'".format(
@@ -91,7 +91,7 @@ class SymbolicMicroCodeEnvironment:
         If not found and create_symbol is True, returns a fresh symbolic variable.
         """
         result = None
-        if mop.t in (mop_r, mop_S, mop_v):
+        if mop.t in (mop_r, mop_S, mop_v, mop_f):
             result = self.mop_record[mop]
         else:
             raise UnsupportedMopException("lookup unsupported mop type '{0}': '{1}'".format(

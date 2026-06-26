@@ -6,7 +6,7 @@ from d810.Environment import SymbolicMicroCodeEnvironment
 from d810.Interpreter import SymbolicMicroCodeInterpreter
 from ida_hexrays import *
 
-from d810.symbolic_expr import Expr, ExprInt, ExprId
+from d810.Expr import Expr, ExprInt, ExprId
 from d810.cfg_utils import change_1way_block_successor, change_2way_block_conditional_successor, duplicate_block
 from d810.hexrays_hooks import InstructionDefUseCollector
 from d810.hexrays_helpers import equal_mops_ignore_size, get_mop_index, get_blk_index

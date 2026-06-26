@@ -25,13 +25,12 @@ from ida_hexrays import (
     m_call, m_icall, m_ldx, m_stx, )
 from ida_segment import getseg, SEGPERM_WRITE
 
-from d810.symbolic_expr import (
+from d810.Expr import (
     Expr, ExprInt, ExprId, ExprMem, ExprOp,
     ExprSlice, ExprCond, _size_mask
 )
-from d810.symbolic_simplifier import simplify, unsigned_to_signed
-from d810.hexrays_helpers import CONTROL_FLOW_OPCODES, \
-    CONDITIONAL_JUMP_OPCODES
+from d810.ExprSimplifier import simplify, unsigned_to_signed
+from d810.hexrays_helpers import CONTROL_FLOW_OPCODES,  CONDITIONAL_JUMP_OPCODES
 from d810.hexrays_formatters import format_minsn_t, format_mop_t, mop_type_to_string, opcode_to_string
 from d810.cfg_utils import get_block_serials_by_address
 from d810.errors import EmulationException, EmulationIndirectJumpException
@@ -51,7 +50,7 @@ class SymbolicMicroCodeInterpreter:
     def __init__(self, global_environment: Optional[SymbolicMicroCodeEnvironment] = None):
         self.global_environment = SymbolicMicroCodeEnvironment() if global_environment is None else global_environment
 
-    def _eval_instruction_and_update_environment(self, blk: mblock_t,ins: minsn_t,
+    def _eval_instruction_and_update_environment(self, blk: Optional[mblock_t],ins: Optional[minsn_t],
                                                   environment: SymbolicMicroCodeEnvironment) -> Optional[Expr]:
         res = self._eval_instruction(blk,ins, environment)
         if res is not None:
@@ -59,7 +58,7 @@ class SymbolicMicroCodeInterpreter:
                 environment.define(ins.d, res)
         return res
 
-    def _eval_instruction(self,blk: mblock_t, ins: minsn_t, environment: SymbolicMicroCodeEnvironment) -> Optional[Expr]:
+    def _eval_instruction(self,blk: Optional[mblock_t], ins: Optional[minsn_t], environment: SymbolicMicroCodeEnvironment ) -> Optional[Expr]:
         if ins is None:
             return None
 
@@ -67,7 +66,7 @@ class SymbolicMicroCodeInterpreter:
         if is_flow_instruction:
             return None
 
-        call_helper_res = self._eval_call_helper(ins, environment)
+        call_helper_res = self._eval_call_helper(blk,ins, environment)
         if call_helper_res is not None:
             return call_helper_res
 
@@ -77,42 +76,42 @@ class SymbolicMicroCodeInterpreter:
         res_size = ins.d.size if ins.d.size > 0 else 8
 
         if ins.opcode == m_ldx:
-            return self._eval_load(blk,ins, environment)
+            return self._eval_load(ins, environment, blk)
         elif ins.opcode == m_stx:
             return self._eval_store(ins, environment)
 
         # Unary operations
         elif ins.opcode == m_mov:
-            return self._apply_size(self.eval(ins.l, environment), res_size)
+            return self._apply_size(self.eval(ins.l, environment,blk), res_size)
         elif ins.opcode == m_neg:
-            arg = self.eval(ins.l, environment)
+            arg = self.eval(ins.l, environment,blk)
             return simplify(ExprOp('neg', [arg], res_size))
         elif ins.opcode == m_lnot:
-            arg = self.eval(ins.l, environment)
+            arg = self.eval(ins.l, environment,blk)
             return simplify(ExprOp('lnot', [arg], res_size))
         elif ins.opcode == m_bnot:
-            arg = self.eval(ins.l, environment)
+            arg = self.eval(ins.l, environment,blk)
             return simplify(ExprOp('~', [arg], res_size))
         elif ins.opcode == m_xds:
             # Sign-extend
-            arg = self.eval(ins.l, environment)
+            arg = self.eval(ins.l, environment,blk)
             if arg.is_int():
                 signed_val = unsigned_to_signed(arg.as_int(), ins.l.size)
                 return ExprInt(signed_to_unsigned(signed_val, res_size) & _size_mask(res_size), res_size)
             return simplify(ExprOp('xds', [arg], res_size))
         elif ins.opcode == m_xdu:
             # Zero-extend
-            arg = self.eval(ins.l, environment)
+            arg = self.eval(ins.l, environment,blk)
             if arg.is_int():
                 return ExprInt(arg.as_int() & _size_mask(res_size), res_size)
             return simplify(ExprOp('xdu', [arg], res_size))
         elif ins.opcode == m_low:
             # Truncate (low part)
-            arg = self.eval(ins.l, environment)
+            arg = self.eval(ins.l, environment,blk)
             return self._apply_size(arg, res_size)
         elif ins.opcode == m_high:
             # High part
-            arg = self.eval(ins.l, environment)
+            arg = self.eval(ins.l, environment,blk)
             if arg.is_int():
                 shift = (ins.l.size - res_size) * 8
                 return ExprInt((arg.as_int() >> shift) & _size_mask(res_size), res_size)
@@ -120,73 +119,73 @@ class SymbolicMicroCodeInterpreter:
 
         # Binary arithmetic/logic operations
         elif ins.opcode == m_add:
-            return self._eval_binop('+', ins, environment, res_size)
+            return self._eval_binop(blk,'+', ins, environment, res_size)
         elif ins.opcode == m_sub:
-            return self._eval_binop('-', ins, environment, res_size)
+            return self._eval_binop(blk,'-', ins, environment, res_size)
         elif ins.opcode == m_mul:
-            return self._eval_binop('*', ins, environment, res_size)
+            return self._eval_binop(blk,'*', ins, environment, res_size)
         elif ins.opcode == m_udiv:
-            return self._eval_binop('/', ins, environment, res_size)
+            return self._eval_binop(blk,'/', ins, environment, res_size)
         elif ins.opcode == m_sdiv:
-            return self._eval_binop('/s', ins, environment, res_size)
+            return self._eval_binop(blk,'/s', ins, environment, res_size)
         elif ins.opcode == m_umod:
-            return self._eval_binop('%', ins, environment, res_size)
+            return self._eval_binop(blk,'%', ins, environment, res_size)
         elif ins.opcode == m_smod:
-            return self._eval_binop('%s', ins, environment, res_size)
+            return self._eval_binop(blk,'%s', ins, environment, res_size)
         elif ins.opcode == m_or:
-            return self._eval_binop('|', ins, environment, res_size)
+            return self._eval_binop(blk,'|', ins, environment, res_size)
         elif ins.opcode == m_and:
-            return self._eval_binop('&', ins, environment, res_size)
+            return self._eval_binop(blk,'&', ins, environment, res_size)
         elif ins.opcode == m_xor:
-            return self._eval_binop('^', ins, environment, res_size)
+            return self._eval_binop(blk,'^', ins, environment, res_size)
         elif ins.opcode == m_shl:
-            return self._eval_binop('<<', ins, environment, res_size)
+            return self._eval_binop(blk,'<<', ins, environment, res_size)
         elif ins.opcode == m_shr:
-            return self._eval_binop('>>', ins, environment, res_size)
+            return self._eval_binop(blk,'>>', ins, environment, res_size)
         elif ins.opcode == m_sar:
-            return self._eval_binop('>>a', ins, environment, res_size)
+            return self._eval_binop(blk,'>>a', ins, environment, res_size)
 
         # Flag/comparison operations
         elif ins.opcode == m_cfadd:
-            return self._eval_binop('cfadd', ins, environment, res_size)
+            return self._eval_binop(blk,'cfadd', ins, environment, res_size)
         elif ins.opcode == m_ofadd:
-            return self._eval_binop('ofadd', ins, environment, res_size)
+            return self._eval_binop(blk,'ofadd', ins, environment, res_size)
         elif ins.opcode == m_sets:
-            left = self.eval(ins.l, environment)
+            left = self.eval(ins.l, environment,blk)
             # sets only takes left operand for sign check
             return simplify(ExprOp('sets', [left, ExprInt(0, ins.l.size)], res_size))
         elif ins.opcode == m_seto:
-            return self._eval_binop('seto', ins, environment, res_size)
+            return self._eval_binop(blk,'seto', ins, environment, res_size)
         elif ins.opcode == m_setp:
-            return self._eval_binop('parity', ins, environment, res_size)
+            return self._eval_binop(blk,'parity', ins, environment, res_size)
         elif ins.opcode == m_setnz:
-            return self._eval_binop('!=', ins, environment, res_size)
+            return self._eval_binop(blk,'!=', ins, environment, res_size)
         elif ins.opcode == m_setz:
-            return self._eval_binop('==', ins, environment, res_size)
+            return self._eval_binop(blk,'==', ins, environment, res_size)
         elif ins.opcode == m_setae:
-            return self._eval_binop('>=u', ins, environment, res_size)
+            return self._eval_binop(blk,'>=u', ins, environment, res_size)
         elif ins.opcode == m_setb:
-            return self._eval_binop('<u', ins, environment, res_size)
+            return self._eval_binop(blk,'<u', ins, environment, res_size)
         elif ins.opcode == m_seta:
-            return self._eval_binop('>u', ins, environment, res_size)
+            return self._eval_binop(blk,'>u', ins, environment, res_size)
         elif ins.opcode == m_setbe:
-            return self._eval_binop('<=u', ins, environment, res_size)
+            return self._eval_binop(blk,'<=u', ins, environment, res_size)
         elif ins.opcode == m_setg:
-            return self._eval_binop('>s', ins, environment, res_size)
+            return self._eval_binop(blk,'>s', ins, environment, res_size)
         elif ins.opcode == m_setge:
-            return self._eval_binop('>=s', ins, environment, res_size)
+            return self._eval_binop(blk,'>=s', ins, environment, res_size)
         elif ins.opcode == m_setl:
-            return self._eval_binop('<s', ins, environment, res_size)
+            return self._eval_binop(blk,'<s', ins, environment, res_size)
         elif ins.opcode == m_setle:
-            return self._eval_binop('<=s', ins, environment, res_size)
+            return self._eval_binop(blk,'<=s', ins, environment, res_size)
 
         raise EmulationException("Unsupported instruction opcode '{0}': '{1}'"
                                  .format(opcode_to_string(ins.opcode), format_minsn_t(ins)))
 
-    def _eval_binop(self, op: str, ins: minsn_t, environment: SymbolicMicroCodeEnvironment, res_size: int) -> Expr:
+    def _eval_binop(self, blk: Optional[mblock_t],op: str, ins: minsn_t, environment: SymbolicMicroCodeEnvironment, res_size: int) -> Expr:
         """Evaluate a binary operation symbolically."""
-        left = self.eval(ins.l, environment)
-        right = self.eval(ins.r, environment)
+        left = self.eval(ins.l, environment,blk)
+        right = self.eval(ins.r, environment,blk)
         return simplify(ExprOp(op, [left, right], res_size))
 
     def _apply_size(self, expr: Expr, size: int) -> Expr:
@@ -202,7 +201,7 @@ class SymbolicMicroCodeInterpreter:
         return simplify(ExprOp('xdu', [expr], size))
 
 
-    def _eval_conditional_jump_cond(self, ins: minsn_t, environment: SymbolicMicroCodeEnvironment) -> Optional[Expr]:
+    def _eval_conditional_jump_cond(self, blk: mblock_t ,ins: minsn_t, environment: SymbolicMicroCodeEnvironment) -> Optional[Expr]:
         """
         Evaluate conditional jump condition symbolically.
         Returns an Expr representing the condition (non-zero = jump taken).
@@ -214,10 +213,10 @@ class SymbolicMicroCodeInterpreter:
             return None
 
         if ins.opcode == m_jcnd:
-            return self.eval(ins.l, environment)
+            return self.eval(ins.l, environment,blk)
 
-        left = self.eval(ins.l, environment)
-        right = self.eval(ins.r, environment)
+        left = self.eval(ins.l, environment,blk)
+        right = self.eval(ins.r, environment,blk)
 
         if ins.opcode == m_jnz:
             return simplify(ExprOp('!=', [left, right], 1))
@@ -249,7 +248,7 @@ class SymbolicMicroCodeInterpreter:
             raise EmulationException("Can't evaluate control flow instruction with null block: '{0}'"
                                      .format(format_minsn_t(ins)))
 
-        cond = self._eval_conditional_jump_cond(ins, environment)
+        cond = self._eval_conditional_jump_cond(cur_blk,ins, environment)
         if cond is not None:
             target_serial = ins.d.b
             fallthrough_serial = cur_blk.serial + 1
@@ -276,7 +275,7 @@ class SymbolicMicroCodeInterpreter:
             return True
 
         if ins.opcode == m_jtbl:
-            left_value = self.eval(ins.l, environment)
+            left_value = self.eval(ins.l, environment,cur_blk)
             if not left_value.is_int():
                 symb_log.debug("jtbl index is symbolic, cannot resolve")
                 return False
@@ -289,7 +288,7 @@ class SymbolicMicroCodeInterpreter:
                         next_blk_serial = target_block_serial
                         break
         elif ins.opcode == m_ijmp:
-            dest_expr = self.eval(ins.d, environment)
+            dest_expr = self.eval(ins.d, environment,cur_blk)
             if not dest_expr.is_int():
                 symb_log.debug("ijmp destination is symbolic, cannot resolve")
                 return False
@@ -312,7 +311,7 @@ class SymbolicMicroCodeInterpreter:
         environment.irdst = ExprInt(next_blk_serial, 4)
         return True
 
-    def _eval_call_helper(self, ins: minsn_t, environment: SymbolicMicroCodeEnvironment) -> Optional[Expr]:
+    def _eval_call_helper(self , blk: mblock_t, ins: minsn_t, environment: SymbolicMicroCodeEnvironment) -> Optional[Expr]:
         """Evaluate helper function calls symbolically."""
         if ins.opcode != m_call or ins.l.t != mop_h:
             return None
@@ -321,24 +320,24 @@ class SymbolicMicroCodeInterpreter:
         args_list = ins.d
 
         symb_log.debug("Call helper for {0}".format(helper_name))
-
-        if helper_name == "__ROR4__":
-            data_1 = self.eval(args_list.f.args[0], environment)
-            data_2 = self.eval(args_list.f.args[1], environment)
-            if data_1.is_int() and data_2.is_int():
-                result = ror(data_1.as_int(), data_2.as_int(), 8 * args_list.f.args[0].size)
-                return ExprInt(result & _size_mask(res_size), res_size)
-            return simplify(ExprOp('ror', [data_1, data_2], res_size))
-        elif helper_name == "__readfsqword":
-            return ExprInt(0, res_size)
+        print("Call helper for {0}".format(helper_name))
+        # if helper_name == "__ROR4__":
+        #     data_1 = self.eval(args_list.f.args[0], environment,blk)
+        #     data_2 = self.eval(args_list.f.args[1], environment,blk)
+        #     if data_1.is_int() and data_2.is_int():
+        #         result = ror(data_1.as_int(), data_2.as_int(), 8 * args_list.f.args[0].size)
+        #         return ExprInt(result & _size_mask(res_size), res_size)
+        #     return simplify(ExprOp('ror', [data_1, data_2], res_size))
+        # elif helper_name == "__readfsqword":
+        #     return ExprInt(0, res_size)
 
         # Unknown helper: return symbolic
         return ExprId("call_{}".format(helper_name), res_size)
 
-    def _eval_load(self, cur_blk:mblock_t,ins: minsn_t, environment: SymbolicMicroCodeEnvironment) -> Optional[Expr]:
+    def _eval_load(self,ins: minsn_t, environment: SymbolicMicroCodeEnvironment,cur_blk:mblock_t) -> Optional[Expr]:
         """Evaluate memory load symbolically."""
         res_size = ins.d.size if ins.d.size > 0 else 8
-        addr_expr = self.eval(ins.r, environment)
+        addr_expr = self.eval(ins.r, environment,cur_blk)
 
         if ins.opcode == m_ldx:
             formatted_seg_register = format_mop_t(ins.l)
@@ -388,14 +387,13 @@ class SymbolicMicroCodeInterpreter:
         symb_log.debug("Symbolic call to: {0}".format(call_target))
         return ExprId("call_{}".format(call_target), res_size)
 
-    def eval(self, mop: mop_t, environment: SymbolicMicroCodeEnvironment) -> Expr:
+    def eval(self,mop: mop_t, environment: SymbolicMicroCodeEnvironment,cur_blk:Optional[mblock_t] = None) -> Expr:
         """
         Evaluate a microcode operand symbolically.
         Returns a Expr (may be concrete ExprInt or symbolic).
         Never raises on undefined variables.
         """
         size = mop.size if mop.size > 0 else 8
-
         if mop.t == mop_n:
             return ExprInt(mop.nnn.value & _size_mask(size), size)
         elif mop.t in (mop_r, mop_S):
@@ -404,7 +402,10 @@ class SymbolicMicroCodeInterpreter:
             # stored at a different size (e.g., wrote eax.4, now reading rax.8)
             return self._apply_size(result, size)
         elif mop.t == mop_d:
-            result = self._eval_instruction(mop.d, environment)
+            if cur_blk is None:
+                raise EmulationException("instruction opcode '{0}': '{1}' cur_blk is None"
+                                         .format(opcode_to_string(mop.d), format_minsn_t(mop.d)))
+            result = self._eval_instruction(cur_blk,mop.d, environment)
             if result is None:
                 return ExprId("sub_insn_{}".format(format_mop_t(mop)), size)
             return result
@@ -484,7 +485,6 @@ class SymbolicMicroCodeInterpreter:
             microcode_environment = SymbolicMicroCodeEnvironment()
         cur_ins = current_block.head
         while cur_ins is not None:
-            symb_log.debug(cur_ins.dstr())
             self.eval_instruction(current_block, cur_ins, microcode_environment)
             cur_ins = cur_ins.next
 
