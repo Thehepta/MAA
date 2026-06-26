@@ -18,6 +18,34 @@ def _size_mask(size: int) -> int:
     return (1 << (size * 8)) - 1
 
 
+def walk_expr_iter(root):
+    stack = [root]
+    while stack:
+        cur = stack.pop()
+        yield cur
+
+        children = []
+        if cur.is_cond():
+            # ExprCond
+            children = [cur.cond, cur.src_true, cur.src_false]
+        elif cur.is_op():
+            # ExprOp
+            children = cur.args
+        elif cur.is_mem():
+            # ExprMem 只有地址子表达式
+            children = [cur.addr]
+        elif cur.is_slice():
+            # ExprSlice
+            children = [cur.arg]
+        elif cur.is_compose():
+            # ExprCompose 遍历每一段表达式
+            children = [part[0] for part in cur.parts]
+
+        # 逆序压栈，保持先序遍历顺序不变
+        for child in reversed(children):
+            stack.append(child)
+
+
 @total_ordering
 class Expr:
     """Base class for all microcode symbolic expressions."""

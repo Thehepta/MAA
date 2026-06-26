@@ -14,11 +14,55 @@ import os
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from d810.Expr import (
-    Expr, ExprInt, ExprId, ExprMem, ExprOp,
-    ExprSlice, ExprCompose, ExprCond, _size_mask,
-    expr_int, expr_id, expr_op, expr_mem
+    ExprInt, ExprId, ExprMem, ExprOp,
+    ExprSlice, ExprCompose, ExprCond, walk_expr_iter
 )
 from d810.ExprSimplifier import simplify
+
+
+def test_walk_traverse():
+    # 严格匹配构造参数顺序
+    cmp1 = ExprOp(">", [ExprId("x", 4), ExprInt(1, 4)], 4)
+    cmp2 = ExprOp("<", [ExprId("y", 4), ExprInt(10, 4)], 4)
+    cond = ExprOp("&&", [cmp1, cmp2], 1)
+
+    br_true = ExprInt(100, 8)
+    br_false = ExprOp("+", [ExprId("a", 8), ExprId("b", 8)], 8)
+    root = ExprCond(cond, br_true, br_false)
+
+    nodes = list(walk_expr_iter(root))
+    type_seq = [type(x).__name__ for x in nodes]
+
+    expect = [
+        "ExprCond",
+        "ExprOp",
+        "ExprOp",
+        "ExprId",
+        "ExprInt",
+        "ExprOp",
+        "ExprId",
+        "ExprInt",
+        "ExprInt",
+        "ExprOp",
+        "ExprId",
+        "ExprId",
+    ]
+
+    assert type_seq == expect
+    assert len(nodes) == 12
+
+    vars_found = [x.name for x in nodes if x.is_id()]
+    const_found = [x.value for x in nodes if x.is_int()]
+
+    assert vars_found == ["x", "y", "a", "b"]
+    assert const_found == [1, 10, 100]
+
+    print("  [PASS] test_walk_traverse")
+
+
+
+
+
 
 
 def test_expr_int_basic():
@@ -535,7 +579,7 @@ def run_all_tests():
     test_simplify_mixed()
     test_simplify_overflow()
     test_repr()
-
+    test_walk_traverse()
     print("\n" + "=" * 60)
     print("ALL TESTS PASSED!")
     print("=" * 60)
