@@ -20,6 +20,7 @@ from d810.Expr import (
 from d810.ExprSimplifier import simplify
 
 
+
 def get_branch_constraints(expr_cond: ExprCond):
     cond = expr_cond.cond
     bit_one = ExprInt(1, cond.size)
@@ -38,10 +39,22 @@ def test_cond_jz_cond():
     x29 = ExprId("x29", 8)
     c2 = ExprOp("==", [x29, ExprInt(0xDBE8A93F48D4BDC7, 8)],4)
     e2 = ExprCond(c2, ExprInt(5, 4), ExprInt(21, 4))
-    print(e2)
+    print("原始表达式：", e2)
     c_true, c_false = get_branch_constraints(e2)
     print("走5的条件：", simplify(c_true))
     print("走21的条件：", simplify(c_false))
+
+    # 测试替换功能
+    print("\n--- 测试替换功能 ---")
+    # 方式1：用变量名替换
+    e3 = e2.replace({"x29": ExprInt(0xDBE8A93F48D4BDC7, 8)})
+    print("替换 x29 后：", e3)
+    print("化简后：", simplify(e3))
+
+    # 方式2：用表达式对象替换
+    e4 = e2.replace({x29: ExprInt(0x1234, 8)})
+    print("\n替换 x29 为 0x1234：", e4)
+    print("化简后：", simplify(e4))
 
 
 def test_walk_traverse():
@@ -84,9 +97,93 @@ def test_walk_traverse():
     print("  [PASS] test_walk_traverse")
 
 
+def test_replace_simple():
+    """Test simple variable replacement."""
+    x = ExprId("eax", 4)
+    e = ExprOp('+', [x, ExprInt(5, 4)], 4)
+
+    # Replace by variable name
+    result = e.replace({"eax": ExprInt(10, 4)})
+    print("替换前：", e)
+    print("替换后：", result)
+    simplified = simplify(result)
+    assert simplified.is_int()
+    assert simplified.as_int() == 15
+    print("  [PASS] test_replace_simple")
 
 
+def test_replace_multiple():
+    """Test replacing multiple variables."""
+    x = ExprId("x", 4)
+    y = ExprId("y", 4)
+    # (x + y) * 2
+    e = ExprOp('*', [ExprOp('+', [x, y], 4), ExprInt(2, 4)], 4)
 
+    # Replace both x and y
+    result = e.replace({"x": ExprInt(3, 4), "y": ExprInt(4, 4)})
+    print("替换前：", e)
+    print("替换后：", result)
+    simplified = simplify(result)
+
+    assert simplified.is_int()
+    assert simplified.as_int() == 14  # (3 + 4) * 2 = 14
+    print("  [PASS] test_replace_multiple")
+
+
+def test_replace_nested():
+    """Test replacing in nested expressions."""
+    x = ExprId("x", 4)
+    # Cond expression: (x > 5 ? x + 1 : x - 1)
+    cond = ExprOp('>u', [x, ExprInt(5, 4)], 4)
+    true_branch = ExprOp('+', [x, ExprInt(1, 4)], 4)
+    false_branch = ExprOp('-', [x, ExprInt(1, 4)], 4)
+    e = ExprCond(cond, true_branch, false_branch)
+
+    # Replace x with 10
+    result = e.replace({"x": ExprInt(10, 4)})
+    print("替换前：", e)
+    print("替换后：", result)
+    simplified = simplify(result)
+    # 10 > 5 is true, so should get 10 + 1 = 11
+    assert simplified.is_int()
+    assert simplified.as_int() == 11
+    print("  [PASS] test_replace_nested")
+
+
+def test_replace_partial():
+    """Test partial replacement (only some variables)."""
+    x = ExprId("x", 4)
+    y = ExprId("y", 4)
+    e = ExprOp('+', [x, y], 4)
+
+    # Only replace x, leave y symbolic
+    result = e.replace({"x": ExprInt(5, 4)})
+    print("替换前：", e)
+    print("替换后：", result)
+    # Should be (5 + y), still symbolic
+    assert result.is_op()
+    assert result.op == '+'
+    assert result.args[0].is_int()
+    assert result.args[0].as_int() == 5
+    assert result.args[1] == y
+    print("  [PASS] test_replace_partial")
+
+
+def test_replace_subexpr():
+    """Test replacing entire subexpressions."""
+    x = ExprId("x", 4)
+    y = ExprId("y", 4)
+    subexpr = ExprOp('+', [x, y], 4)
+    e = ExprOp('*', [subexpr, ExprInt(2, 4)], 4)
+
+    # Replace the entire (x + y) subexpression
+    result = e.replace({subexpr: ExprInt(10, 4)})
+    print("替换前：", e)
+    print("替换后：", result)
+    simplified = simplify(result)
+    assert simplified.is_int()
+    assert simplified.as_int() == 20  # 10 * 2
+    print("  [PASS] test_replace_subexpr")
 
 
 def test_expr_int_basic():
@@ -619,3 +716,8 @@ test_simplify_overflow = test_overflow_masking
 if __name__ == "__main__":
     # run_all_tests()
     test_cond_jz_cond()
+    test_replace_simple()
+    test_replace_multiple()
+    test_replace_nested()
+    test_replace_partial()
+    test_replace_subexpr()

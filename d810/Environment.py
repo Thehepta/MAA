@@ -39,7 +39,7 @@ class SymbolicMicroCodeEnvironment:
 
     def __init__(self):
         self.mop_record = SymMopMap()
-        self.undefind_mop_record: List[mop_t] = []
+        self.undefind_mop_record = SymMopMap()
 
         # 符号化跳转目标，类似 Miasm 的 IRDst（per-block：当前块的出口）
         # 具体跳转: ExprInt(serial, 4)
@@ -105,7 +105,7 @@ class SymbolicMicroCodeEnvironment:
             size = mop.size if mop.size > 0 else 8
             name = get_mop_name(mop)
             symbol = ExprId(name, size)
-            self.undefind_mop_record.append(mop)
+            self.undefind_mop_record[mop] = symbol
             symb_log.debug("Created symbolic variable for undefined mop: {0}".format(name))
             return symbol
 
@@ -133,10 +133,12 @@ class SymbolicMicroCodeEnvironment:
             for mop, value in self.mop_record.items():
                 name = get_mop_name(mop)
                 print("  {0} = {1}".format(name, value))
-        print("[Undefine]")
-        for mop in self.undefind_mop_record:
-            name = get_mop_name(mop)
-            print("{0}".format(name))
+        if len(self.undefind_mop_record) > 0:
+            print("[Undefine]")
+            for mop, value in self.undefind_mop_record.items():
+                name = get_mop_name(mop)
+                print("  mop : {0} -> ExprId : {1}".format(name, value))
+
         total = len(self.mop_record)
         print("-" * 60)
         print("Total: {0} entries".format(total))

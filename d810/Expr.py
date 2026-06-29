@@ -131,6 +131,24 @@ class Expr:
         """Return a copy of this expression."""
         raise NotImplementedError
 
+    def replace(self, mapping: dict) -> Expr:
+        """
+        Replace subexpressions according to the mapping.
+
+        @param mapping: dict mapping source expressions to replacement expressions.
+                       Can map Expr objects or (for convenience) strings to Expr.
+        @return: new expression with replacements applied
+
+        Example:
+            x = ExprId("x29", 8)
+            e = ExprOp("+", [x, ExprInt(5, 8)], 8)
+            # Replace by expression
+            e2 = e.replace({x: ExprInt(10, 8)})
+            # Replace by variable name (convenience)
+            e3 = e.replace({"x29": ExprInt(10, 8)})
+        """
+        raise NotImplementedError
+
 
 class ExprInt(Expr):
     """Concrete integer value."""
@@ -173,6 +191,14 @@ class ExprInt(Expr):
     def copy(self) -> ExprInt:
         return ExprInt(self._value, self._size)
 
+    def replace(self, mapping: dict) -> Expr:
+        """Replace subexpressions. Check if this exact expression is in mapping."""
+        # Check exact match first
+        if self in mapping:
+            return mapping[self]
+        # ExprInt is a leaf, no further replacement needed
+        return self
+
 
 class ExprId(Expr):
     """Symbolic identifier (register, stack variable, global variable)."""
@@ -203,6 +229,16 @@ class ExprId(Expr):
 
     def copy(self) -> ExprId:
         return ExprId(self._name, self._size)
+
+    def replace(self, mapping: dict) -> Expr:
+        """Replace this identifier if it's in the mapping."""
+        # Check exact match first
+        if self in mapping:
+            return mapping[self]
+        # For convenience, also check by name (string key)
+        if self._name in mapping:
+            return mapping[self._name]
+        return self
 
 class ExprMem(Expr):
     """Memory access expression: @size[addr_expr]."""
@@ -237,6 +273,17 @@ class ExprMem(Expr):
 
     def copy(self) -> ExprMem:
         return ExprMem(self._addr.copy(), self._size)
+
+    def replace(self, mapping: dict) -> Expr:
+        """Replace subexpressions in memory address."""
+        # Check if this entire mem expression is in mapping
+        if self in mapping:
+            return mapping[self]
+        # Recursively replace in address
+        new_addr = self._addr.replace(mapping)
+        if new_addr is self._addr:
+            return self
+        return ExprMem(new_addr, self._size)
 
 
 class ExprOp(Expr):
@@ -289,6 +336,17 @@ class ExprOp(Expr):
     def copy(self) -> ExprOp:
         return ExprOp(self._op, [a.copy() for a in self._args], self._size)
 
+    def replace(self, mapping: dict) -> Expr:
+        """Replace subexpressions in operation arguments."""
+        # Check if this entire operation is in mapping
+        if self in mapping:
+            return mapping[self]
+        # Recursively replace in arguments
+        new_args = [arg.replace(mapping) for arg in self._args]
+        if all(new is old for new, old in zip(new_args, self._args)):
+            return self
+        return ExprOp(self._op, new_args, self._size)
+
 
 class ExprSlice(Expr):
     """Bit slice expression: expr[start:stop] (in bits)."""
@@ -337,6 +395,17 @@ class ExprSlice(Expr):
     def copy(self) -> ExprSlice:
         return ExprSlice(self._arg.copy(), self._start, self._stop)
 
+    def replace(self, mapping: dict) -> Expr:
+        """Replace subexpressions in slice argument."""
+        # Check if this entire slice is in mapping
+        if self in mapping:
+            return mapping[self]
+        # Recursively replace in argument
+        new_arg = self._arg.replace(mapping)
+        if new_arg is self._arg:
+            return self
+        return ExprSlice(new_arg, self._start, self._stop)
+
 
 class ExprCompose(Expr):
     """
@@ -383,6 +452,17 @@ class ExprCompose(Expr):
 
     def copy(self) -> ExprCompose:
         return ExprCompose([(e.copy(), s, t) for e, s, t in self._parts])
+
+    def replace(self, mapping: dict) -> Expr:
+        """Replace subexpressions in compose parts."""
+        # Check if this entire compose is in mapping
+        if self in mapping:
+            return mapping[self]
+        # Recursively replace in each part
+        new_parts = [(e.replace(mapping), s, t) for e, s, t in self._parts]
+        if all(new is old for (new, _, _), (old, _, _) in zip(new_parts, self._parts)):
+            return self
+        return ExprCompose(new_parts)
 
 
 class ExprCond(Expr):
@@ -431,3 +511,16 @@ class ExprCond(Expr):
 
     def copy(self) -> ExprCond:
         return ExprCond(self._cond.copy(), self._src_true.copy(), self._src_false.copy())
+
+    def replace(self, mapping: dict) -> Expr:
+        """Replace subexpressions in condition and branches."""
+        # Check if this entire cond is in mapping
+        if self in mapping:
+            return mapping[self]
+        # Recursively replace in condition and branches
+        new_cond = self._cond.replace(mapping)
+        new_true = self._src_true.replace(mapping)
+        new_false = self._src_false.replace(mapping)
+        if new_cond is self._cond and new_true is self._src_true and new_false is self._src_false:
+            return self
+        return ExprCond(new_cond, new_true, new_false)

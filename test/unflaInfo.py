@@ -7,6 +7,7 @@ import ida_ida
 import ida_range
 # from d810.emulator import MicroCodeInterpreter, MicroCodeEnvironment
 from d810.Environment import SymbolicMicroCodeEnvironment
+from d810.Expr import walk_expr_iter
 from d810.Interpreter import SymbolicMicroCodeInterpreter
 from d810.generic import GenericDispatcherInfo
 from d810.generic import GenericDispatcherBlockInfo
@@ -138,12 +139,16 @@ class D810OllvmDispatcherInfo(GenericDispatcherInfo):
         mba = blk.mba
         microcode_interpreter = SymbolicMicroCodeInterpreter()
 
-        for i in all_paths[0]:
+        for i in all_paths[1]:
             blk = mba.get_mblock(i)
             print(blk.serial)
             microcode_interpreter.eval_blk(blk, microcode_environment)
             print(microcode_environment.irdst)
-
+            nodes = list(walk_expr_iter(microcode_environment.irdst))
+            for node in nodes:
+                if node.is_id():
+                    mop = microcode_environment.undefind_mop_record[node]
+                    print("nodes:{0}".format(mop.dstr()))
 
 
 
