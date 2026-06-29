@@ -6,7 +6,8 @@ import ida_funcs
 import ida_ida
 import ida_range
 # from d810.emulator import MicroCodeInterpreter, MicroCodeEnvironment
-from d810.emulator_Interpreter import SymbolicMicroCodeEnvironment
+from d810.Environment import SymbolicMicroCodeEnvironment
+from d810.Interpreter import SymbolicMicroCodeInterpreter
 from d810.generic import GenericDispatcherInfo
 from d810.generic import GenericDispatcherBlockInfo
 from d810.hexrays_formatters import format_mop_t, format_minsn_t
@@ -17,9 +18,6 @@ import ida_hexrays as hr
 import ida_kernwin as kw
 import traceback
 
-from d810.tracker import  MopTracker
-from d810.utils import NotResolvableFatherException, get_all_possibles_values
-from lucid.util.D810Utils import eva_blk
 
 FLATTENING_JUMP_OPCODES = [hr.m_jnz, hr.m_jz, hr.m_jae, hr.m_jb, hr.m_ja, hr.m_jbe, hr.m_jg, hr.m_jge, hr.m_jl,
                            hr.m_jle]
@@ -42,6 +40,48 @@ def find_all_paths_dfs(start_block, end_blocks):
     def dfs(current_block, path):
         current_num = current_block.serial
 
+        if current_num in visited:
+            return
+
+        if current_num in end_block_nums:
+            tmp_path = path.copy()
+            tmp_path.append(current_num)
+            print(f"到达终点 {current_num}, 路径: {tmp_path}")  # 调试输出
+            all_paths.append(tmp_path)
+            return
+
+        path.append(current_num)
+        visited.add(current_num)
+
+        for succ_block in current_block.succs():
+            dfs(succ_block, path)
+
+        path.pop()
+        visited.remove(current_num)
+
+    dfs(start_block, [])
+    unique_paths = []
+    seen = set()
+    for path in all_paths:
+        path_tuple = tuple(path)
+        if path_tuple not in seen:
+            seen.add(path_tuple)
+            unique_paths.append(path)
+    return unique_paths
+
+
+def find_all_paths_dfs2(start_block, end_blocks):
+    if not start_block or not end_blocks:
+        return []
+
+    end_block_nums = set(blk.serial for blk in end_blocks)
+    print(f"终点块编号: {end_block_nums}")  # 调试输出
+
+    all_paths = []
+    visited = set()
+
+    def dfs(current_block, path):
+        current_num = current_block.serial
         if current_num in visited:
             return
 
@@ -69,6 +109,7 @@ def find_all_paths_dfs(start_block, end_blocks):
             unique_paths.append(path)
     return unique_paths
 
+
 class D810OllvmDispatcherInfo(GenericDispatcherInfo):
 
     def explore(self, blk: mblock_t) -> bool:
@@ -93,13 +134,25 @@ class D810OllvmDispatcherInfo(GenericDispatcherInfo):
         end_block_nums = set(Gdbi.blk for Gdbi in self.dispatcher_exit_blocks)
         all_paths = find_all_paths_dfs(self.entry_block.blk,end_block_nums)
         print(len(all_paths))
+        microcode_environment = SymbolicMicroCodeEnvironment()
+        mba = blk.mba
+        microcode_interpreter = SymbolicMicroCodeInterpreter()
 
-        for paths in all_paths:
-            microcode_environment = SymbolicMicroCodeEnvironment()
-            for p in paths:
-                current_block = self.mba.get_mblock(p)
-                eva_blk(current_block,microcode_environment)
-            microcode_environment.dump()
+        for i in all_paths[0]:
+            blk = mba.get_mblock(i)
+            print(blk.serial)
+            microcode_interpreter.eval_blk(blk, microcode_environment)
+            print(microcode_environment.irdst)
+
+
+
+
+        # for paths in all_paths:
+        #     microcode_environment = SymbolicMicroCodeEnvironment()
+        #     for p in paths:
+        #         current_block = self.mba.get_mblock(p)
+        #         eva_blk(current_block,microcode_environment)
+        #     microcode_environment.dump()
         return True
 
     def _is_candidate_for_dispatcher_entry_block(self, blk: mblock_t) -> bool:

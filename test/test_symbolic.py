@@ -20,6 +20,30 @@ from d810.Expr import (
 from d810.ExprSimplifier import simplify
 
 
+def get_branch_constraints(expr_cond: ExprCond):
+    cond = expr_cond.cond
+    bit_one = ExprInt(1, cond.size)
+    bit_zero = ExprInt(0, cond.size)
+
+    # 条件为真：cond == 1
+    cond_true = ExprOp("==", [cond, bit_one],4)
+    # 条件为假：cond == 0
+    cond_false = ExprOp("==", [cond, bit_zero],4)
+    return cond_true, cond_false
+
+def test_cond_jz_cond():
+
+    # 2. 第二条表达式
+    # ((x29:8 == 0xDBE8A93F48D4BDC7:8):1 ? 5:4 : 21:4):4
+    x29 = ExprId("x29", 8)
+    c2 = ExprOp("==", [x29, ExprInt(0xDBE8A93F48D4BDC7, 8)],4)
+    e2 = ExprCond(c2, ExprInt(5, 4), ExprInt(21, 4))
+    print(e2)
+    c_true, c_false = get_branch_constraints(e2)
+    print("走5的条件：", simplify(c_true))
+    print("走21的条件：", simplify(c_false))
+
+
 def test_walk_traverse():
     # 严格匹配构造参数顺序
     cmp1 = ExprOp(">", [ExprId("x", 4), ExprInt(1, 4)], 4)
@@ -593,4 +617,5 @@ test_simplify_overflow = test_overflow_masking
 
 
 if __name__ == "__main__":
-    run_all_tests()
+    # run_all_tests()
+    test_cond_jz_cond()
