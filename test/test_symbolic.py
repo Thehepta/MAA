@@ -203,6 +203,12 @@ def test_expr_int_truncation():
     assert e.as_int() == 0xFFFFFFFF
     print("  [PASS] test_expr_int_truncation")
 
+def test_expr_int_equal():
+    e2 = ExprInt(0x7F, 1)  # 127 in signed 8-bit
+    e1 = ExprInt(0x7F, 1)  # 127 in signed 8-bit
+    assert e2 == e1
+    print("  [PASS] test_expr_int_equal")
+
 
 def test_expr_int_signed():
     """Test signed interpretation."""
@@ -701,6 +707,15 @@ def run_all_tests():
     test_simplify_overflow()
     test_repr()
     test_walk_traverse()
+
+    test_replace_simple()
+    test_replace_multiple()
+    test_replace_nested()
+    test_replace_partial()
+    test_replace_subexpr()
+
+    test_cond_jz_cond()
+
     print("\n" + "=" * 60)
     print("ALL TESTS PASSED!")
     print("=" * 60)
@@ -715,9 +730,5 @@ test_simplify_overflow = test_overflow_masking
 
 if __name__ == "__main__":
     # run_all_tests()
-    test_cond_jz_cond()
-    test_replace_simple()
-    test_replace_multiple()
-    test_replace_nested()
-    test_replace_partial()
-    test_replace_subexpr()
+    # test_cond_jz_cond()
+    test_expr_int_equal()

@@ -35,7 +35,7 @@ from d810.hexrays_formatters import format_minsn_t, format_mop_t, mop_type_to_st
 from d810.cfg_utils import get_block_serials_by_address
 from d810.errors import EmulationException, EmulationIndirectJumpException
 
-symb_log = logging.getLogger('D810.emulator')
+interpreter = logging.getLogger('D810.interpreter')
 
 
 class SymbolicMicroCodeInterpreter:
@@ -277,7 +277,7 @@ class SymbolicMicroCodeInterpreter:
         if ins.opcode == m_jtbl:
             left_value = self.eval(ins.l, environment,cur_blk)
             if not left_value.is_int():
-                symb_log.debug("jtbl index is symbolic, cannot resolve")
+                interpreter.debug("jtbl index is symbolic, cannot resolve")
                 return False
             int_value = left_value.as_int()
             cases = ins.r.c
@@ -290,7 +290,7 @@ class SymbolicMicroCodeInterpreter:
         elif ins.opcode == m_ijmp:
             dest_expr = self.eval(ins.d, environment,cur_blk)
             if not dest_expr.is_int():
-                symb_log.debug("ijmp destination is symbolic, cannot resolve")
+                interpreter.debug("ijmp destination is symbolic, cannot resolve")
                 return False
             ijmp_dest_ea = dest_expr.as_int()
             dest_block_serials = get_block_serials_by_address(cur_blk.mba, ijmp_dest_ea)
@@ -319,8 +319,7 @@ class SymbolicMicroCodeInterpreter:
         helper_name = ins.l.helper
         args_list = ins.d
 
-        symb_log.debug("Call helper for {0}".format(helper_name))
-        print("Call helper for {0}".format(helper_name))
+        interpreter.debug("Call helper for {0}".format(helper_name))
         # if helper_name == "__ROR4__":
         #     data_1 = self.eval(args_list.f.args[0], environment,blk)
         #     data_2 = self.eval(args_list.f.args[1], environment,blk)
@@ -375,7 +374,7 @@ class SymbolicMicroCodeInterpreter:
 
     def _eval_store(self, ins: minsn_t, environment: SymbolicMicroCodeEnvironment) -> Optional[Expr]:
         """Evaluate memory store symbolically (store value in environment if possible)."""
-        symb_log.debug("Symbolic store: {0}".format(format_minsn_t(ins)))
+        interpreter.debug("Symbolic store: {0}".format(format_minsn_t(ins)))
         # We don't track memory writes for now; return None (no result assigned to d)
         return None
 
@@ -384,7 +383,7 @@ class SymbolicMicroCodeInterpreter:
         res_size = ins.d.size if ins.d.size > 0 else 8
         # Return a symbolic value representing the call result
         call_target = format_mop_t(ins.l)
-        symb_log.debug("Symbolic call to: {0}".format(call_target))
+        interpreter.debug("Symbolic call to: {0}".format(call_target))
         return ExprId("call_{}".format(call_target), res_size)
 
     def eval(self,mop: mop_t, environment: SymbolicMicroCodeEnvironment,cur_blk:Optional[mblock_t] = None) -> Expr:
@@ -435,7 +434,7 @@ class SymbolicMicroCodeInterpreter:
             return self._apply_size(result, size)
 
         # Unsupported mop type - return symbolic
-        symb_log.debug("Unsupported mop type '{0}': '{1}' - creating symbol".format(
+        interpreter.debug("Unsupported mop type '{0}': '{1}' - creating symbol".format(
             mop_type_to_string(mop.t), format_mop_t(mop)))
         return ExprId("mop_{}".format(format_mop_t(mop)), size)
 
@@ -458,16 +457,16 @@ class SymbolicMicroCodeInterpreter:
         try:
             if environment is None:
                 environment = self.global_environment
-            symb_log.info("Evaluating symbolically: '{0}'".format(format_minsn_t(ins)))
+            interpreter.info("Evaluating symbolically: '{0}'".format(format_minsn_t(ins)))
             if ins is None:
                 return None
             return self._eval_instruction_and_update_environment(blk,ins, environment)
         except EmulationException as e:
-            symb_log.warning("Can't evaluate instruction: '{0}': {1}".format(format_minsn_t(ins), e))
+            interpreter.warning("Can't evaluate instruction: '{0}': {1}".format(format_minsn_t(ins), e))
             if raise_exception:
                 raise e
         except Exception as e:
-            symb_log.warning("Error during evaluation of: '{0}': {1}".format(format_minsn_t(ins), e))
+            interpreter.warning("Error during evaluation of: '{0}': {1}".format(format_minsn_t(ins), e))
             if raise_exception:
                 raise e
         return None

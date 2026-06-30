@@ -1,4 +1,5 @@
 import ctypes
+import logging
 
 from d810.hexrays_formatters import format_mop_t
 from d810.hexrays_helpers import MSB_TABLE
@@ -175,3 +176,20 @@ def find_all_paths_dfs(start_block, end_blocks):
     dfs(start_block, [])
 
     return all_paths
+
+
+# 输出控制台
+def enable_console_log(logger):
+    if not any(isinstance(h, logging.StreamHandler) for h in logger.handlers):
+        handler = logging.StreamHandler()
+        logger.addHandler(handler)
+    logger.propagate = False
+    logger.setLevel(logging.DEBUG)
+
+# 输出文件
+def enable_file_log(logger, file_path):
+    if not any(isinstance(h, logging.FileHandler) for h in logger.handlers):
+        handler = logging.FileHandler(file_path, encoding="utf-8")
+        logger.addHandler(handler)
+    logger.propagate = False
+    logger.setLevel(logging.DEBUG)

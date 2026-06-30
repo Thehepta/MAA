@@ -6,13 +6,16 @@ import ida_funcs
 import ida_ida
 import ida_range
 # from d810.emulator import MicroCodeInterpreter, MicroCodeEnvironment
+from d810 import tracker, utils
 from d810.Environment import SymbolicMicroCodeEnvironment
-from d810.Expr import walk_expr_iter
+from d810.Expr import walk_expr_iter, ExprId, ExprInt, Expr
+from d810.ExprSimplifier import get_branch_condition
 from d810.Interpreter import SymbolicMicroCodeInterpreter
 from d810.generic import GenericDispatcherInfo
 from d810.generic import GenericDispatcherBlockInfo
 from d810.hexrays_formatters import format_mop_t, format_minsn_t
 from d810.hexrays_helpers import append_mop_if_not_in_list, extract_num_mop, CONTROL_FLOW_OPCODES
+from d810.utils import get_mop_name
 
 from ida_hexrays import mblock_t, mop_t, optblock_t, minsn_visitor_t, mbl_array_t,get_mreg_name
 import ida_hexrays as hr
@@ -23,9 +26,7 @@ import traceback
 FLATTENING_JUMP_OPCODES = [hr.m_jnz, hr.m_jz, hr.m_jae, hr.m_jb, hr.m_ja, hr.m_jbe, hr.m_jg, hr.m_jge, hr.m_jl,
                            hr.m_jle]
 
-helper_logger = logging.getLogger('D810.helper')
-helper_logger.setLevel(logging.NOTSET)
-# logger = logging.getLogger('D810.tracker')
+utils.enable_console_log(tracker.logger)
 
 
 def find_all_paths_dfs(start_block, end_blocks):
@@ -110,6 +111,67 @@ def find_all_paths_dfs2(start_block, end_blocks):
             unique_paths.append(path)
     return unique_paths
 
+class ollvmflaCase(object):
+
+    def __init__(self,paths,mba):
+        self.path_conds = []
+        self.dst_blk =None
+        self.depend_mops = []
+        self.paths = paths
+        self.mba = mba
+
+    def parse(self):
+        microcode_environment = SymbolicMicroCodeEnvironment()
+        microcode_interpreter = SymbolicMicroCodeInterpreter()
+        for idx, item in enumerate(self.paths):
+
+            has_next = idx != len(self.paths) - 1
+            if has_next is False:
+                break
+            blk = self.mba.get_mblock(item)
+            microcode_interpreter.eval_blk(blk, microcode_environment)
+            # get_branch_condition(microcode_environment.irdst,ExprId())
+            # print(microcode_environment.irdst)
+            target_expr = ExprInt(self.paths[idx + 1], 4)
+            jump_cond = get_branch_condition(microcode_environment.irdst, target_expr)
+            self.updateStatus(jump_cond, self.paths[idx + 1])
+            # print(jump_cond)
+
+            nodes = list(walk_expr_iter(microcode_environment.irdst))
+            for node in nodes:
+                if node.is_id():
+                    mop = microcode_environment.mop_undefind[node]
+                    self.add_depend_mop(mop)
+
+    def updateStatus(self, path_cond:Expr, blk):
+        self.path_conds.append(path_cond)
+        self.dst_blk = blk
+
+    def add_depend_mop(self,depend_mop):
+        append_mop_if_not_in_list(depend_mop, self.depend_mops)
+
+class ollvmflaSwitch(object):
+
+    def __init__(self):
+        self.switch_status = []
+        self.cases = []
+
+    def add_case(self,case,list_status_mop: List[mop_t]):
+        self.cases.append(case)
+        for mop_used in list_status_mop:
+            append_mop_if_not_in_list(mop_used, self.switch_status)
+
+    def dump(self):
+        print("ollvmflaSwitch dump")
+        for mop_used in self.switch_status:
+            name = get_mop_name(mop_used)
+            print("switch status:  {0}".format(name))
+
+        for case in self.cases:
+            print(case.dst_blk)
+            for path_cond in case.path_conds:
+                print(path_cond)
+
 
 class D810OllvmDispatcherInfo(GenericDispatcherInfo):
 
@@ -129,35 +191,6 @@ class D810OllvmDispatcherInfo(GenericDispatcherInfo):
         # TODO: I think this can be wrong because we are too permissive in detection of dispatcher blocks
         if len(dispatcher_blk_with_external_father) != 0:
             return False
-
-        dispatcher_internal_blocks = [x.serial for x in self.dispatcher_internal_blocks]
-        print("dispatcher_internal_blocks:", dispatcher_internal_blocks)
-        end_block_nums = set(Gdbi.blk for Gdbi in self.dispatcher_exit_blocks)
-        all_paths = find_all_paths_dfs(self.entry_block.blk,end_block_nums)
-        print(len(all_paths))
-        microcode_environment = SymbolicMicroCodeEnvironment()
-        mba = blk.mba
-        microcode_interpreter = SymbolicMicroCodeInterpreter()
-
-        for i in all_paths[1]:
-            blk = mba.get_mblock(i)
-            print(blk.serial)
-            microcode_interpreter.eval_blk(blk, microcode_environment)
-            print(microcode_environment.irdst)
-            nodes = list(walk_expr_iter(microcode_environment.irdst))
-            for node in nodes:
-                if node.is_id():
-                    mop = microcode_environment.undefind_mop_record[node]
-                    print("nodes:{0}".format(mop.dstr()))
-
-
-
-        # for paths in all_paths:
-        #     microcode_environment = SymbolicMicroCodeEnvironment()
-        #     for p in paths:
-        #         current_block = self.mba.get_mblock(p)
-        #         eva_blk(current_block,microcode_environment)
-        #     microcode_environment.dump()
         return True
 
     def _is_candidate_for_dispatcher_entry_block(self, blk: mblock_t) -> bool:
@@ -253,37 +286,30 @@ def UnFlaInfo(mba):
         return
 
     dispatcher_internal_blocks = [x.serial for x in dispatch_info.dispatcher_internal_blocks]
-    print("dispatcher_internal_blocks:",dispatcher_internal_blocks)
+    print("dispatcher_internal_blocks:", dispatcher_internal_blocks)
+    end_block_nums = set(Gdbi.blk for Gdbi in dispatch_info.dispatcher_exit_blocks)
+    all_paths = find_all_paths_dfs(dispatch_info.entry_block.blk, end_block_nums)
+    print(len(all_paths))
 
+    unflaSwitch = ollvmflaSwitch()
+    for paths in all_paths:
+        unflacase = ollvmflaCase(paths, blk.mba)
+        unflacase.parse()
+        unflaSwitch.add_case(unflacase, unflacase.depend_mops)
+    unflaSwitch.dump()
 
-
-    def dfs(current_node, target_node, path, paths, visited):
-        path.append(current_node.serial)
-        visited.add(current_node.serial)
-
-        for neighbor in current_node.succs():
-            if neighbor.serial == target_node.serial and len(path) > 1:
-                paths.append(list(path))
-            elif neighbor.serial not in visited:
-                dfs(neighbor, target_node, path, paths, visited)
-
-        path.pop()
-        visited.remove(current_node.serial)
-
-    paths = []
-
-    # dfs(dispatch_block, dispatch_block, [], paths, set())
-    #
-
-    #
-    # for dispatcher_father_serial in dispatch_block.predset:
-    #     father_tracker = MopTracker(dispatch_info.entry_block.use_before_def_list, max_nb_block=100, max_path=100)
-    #     father_tracker.reset()
-    #     dispatcher_father_block = mba.get_mblock(dispatcher_father_serial)
-    #     print("MopTracker block:{0}".format(dispatcher_father_serial))
-    #     father_histories = father_tracker.search_backward(dispatcher_father_block, None)
-    #     if len(father_histories) > 1:
-    #         print("father_block:{0} is  multiple branches".format(dispatcher_father_serial))
+    for dispatcher_father_serial in dispatch_block.predset:
+        father_tracker = tracker.MopTracker(unflaSwitch.switch_status, max_nb_block=100, max_path=100)
+        father_tracker.reset()
+        dispatcher_father_block = mba.get_mblock(dispatcher_father_serial)
+        print("MopTracker block:{0}".format(dispatcher_father_serial))
+        father_histories = father_tracker.search_backward(dispatcher_father_block, None)
+        if len(father_histories) > 1:
+            print("father_block:{0} is  multiple branches".format(dispatcher_father_serial))
+            for history in father_histories:
+                history.print_info()
+        else:
+            father_histories[0].print_info()
     #     try:
     #         # 还原,分发器到分发器的前驱这条代码路径的混淆
     #         for cur_history in father_histories:

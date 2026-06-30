@@ -16,6 +16,17 @@ from d810.Expr import (
 logger = logging.getLogger('D810.symbolic_simplifier')
 
 
+def get_branch_condition(expr_cond: ExprCond, target_cond) -> Optional[Expr|None]:
+    cond = expr_cond.cond
+    bit_one = ExprInt(1, cond.size)
+    bit_zero = ExprInt(0, cond.size)
+    if expr_cond.src_true == target_cond:
+        return ExprOp("==", [cond, bit_one], 4)
+    elif expr_cond.src_false == target_cond:
+        return ExprOp("==", [cond, bit_zero], 4)
+    else:
+        return None
+
 def unsigned_to_signed(value: int, size: int) -> int:
     """Convert unsigned value to signed for given byte size."""
     bits = size * 8

@@ -22,19 +22,19 @@ class SymMopMap:
 
     def __getitem__(self, key : Optional[Expr|mop_t] ) -> Optional[Expr|mop_t]:
 
-        # 分支1：key是mop，根据mop找Expr（原有逻辑）
-        if not isinstance(key, Expr):
-            mop_index = get_mop_index(key, self.mops)
-            if mop_index != -1:
-                return self.mop_values[mop_index]
-            return None
+        if isinstance(key, Expr):
+            expr_target = key
+            for mop, expr in zip(self.mops, self.mop_values):
+                if expr == expr_target:
+                    return mop
 
         # 分支2：key是Expr，反向查找对应的mop
-        expr_target = key
-        for mop, expr in zip(self.mops, self.mop_values):
-            if expr == expr_target:
-                return mop
+        mop_index = get_mop_index(key, self.mops)
+        if mop_index != -1:
+            return self.mop_values[mop_index]
         return None
+
+
 
     def __len__(self):
         return len(self.mops)

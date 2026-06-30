@@ -23,7 +23,7 @@ from d810.ExprSimplifier import simplify
 from d810.hexrays_formatters import format_mop_t, mop_type_to_string
 from d810.errors import UnsupportedMopException
 
-symb_log = logging.getLogger('D810.emulator')
+symb_log = logging.getLogger('D810.env')
 
 
 
@@ -38,8 +38,8 @@ class SymbolicMicroCodeEnvironment:
     """
 
     def __init__(self):
-        self.mop_record = SymMopMap()
-        self.undefind_mop_record = SymMopMap()
+        self.mop_define = SymMopMap()
+        self.mop_undefind = SymMopMap()
 
         # 符号化跳转目标，类似 Miasm 的 IRDst（per-block：当前块的出口）
         # 具体跳转: ExprInt(serial, 4)
@@ -55,7 +55,7 @@ class SymbolicMicroCodeEnvironment:
     def get_copy(self) -> SymbolicMicroCodeEnvironment:
         """Create a full copy of this environment (all records are copied)."""
         new_env = SymbolicMicroCodeEnvironment()
-        new_env.mop_record = self.mop_record.copy()
+        new_env.mop_define = self.mop_define.copy()
         new_env.irdst = self.irdst
         new_env.path_conditions = list(self.path_conditions)
         return new_env
@@ -80,7 +80,7 @@ class SymbolicMicroCodeEnvironment:
     def define(self, mop: mop_t, value: Expr):
         """Define a mop's symbolic value."""
         if mop.t in (mop_r, mop_S, mop_v,mop_f):
-            self.mop_record[mop] = value
+            self.mop_define[mop] = value
         else:
             raise UnsupportedMopException("Defining unsupported mop type '{0}': '{1}'".format(
                 mop_type_to_string(mop.t), format_mop_t(mop)))
@@ -92,7 +92,7 @@ class SymbolicMicroCodeEnvironment:
         """
         result = None
         if mop.t in (mop_r, mop_S, mop_v, mop_f):
-            result = self.mop_record[mop]
+            result = self.mop_define[mop]
         else:
             raise UnsupportedMopException("lookup unsupported mop type '{0}': '{1}'".format(
                 mop_type_to_string(mop.t), format_mop_t(mop)))
@@ -105,7 +105,7 @@ class SymbolicMicroCodeEnvironment:
             size = mop.size if mop.size > 0 else 8
             name = get_mop_name(mop)
             symbol = ExprId(name, size)
-            self.undefind_mop_record[mop] = symbol
+            self.mop_undefind[mop] = symbol
             symb_log.debug("Created symbolic variable for undefined mop: {0}".format(name))
             return symbol
 
@@ -122,25 +122,25 @@ class SymbolicMicroCodeEnvironment:
         print("=" * 60)
 
         if self.irdst is not None:
-            print("IRDst: {0}".format(self.irdst))
+            symb_log.debug("IRDst: {0}".format(self.irdst))
         if len(self.path_conditions) > 0:
-            print("Path conditions (all must hold):")
+            symb_log.debug("Path conditions (all must hold):")
             for i, cond in enumerate(self.path_conditions):
-                print("  [{0}] {1}".format(i, cond))
+                symb_log.debug("  [{0}] {1}".format(i, cond))
 
-        if len(self.mop_record) > 0:
-            print("[Registers]")
-            for mop, value in self.mop_record.items():
+        if len(self.mop_define) > 0:
+            symb_log.debug("[Registers]")
+            for mop, value in self.mop_define.items():
                 name = get_mop_name(mop)
-                print("  {0} = {1}".format(name, value))
-        if len(self.undefind_mop_record) > 0:
-            print("[Undefine]")
-            for mop, value in self.undefind_mop_record.items():
+                symb_log.debug("  {0} = {1}".format(name, value))
+        if len(self.mop_undefind) > 0:
+            symb_log.debug("[Undefine]")
+            for mop, value in self.mop_undefind.items():
                 name = get_mop_name(mop)
-                print("  mop : {0} -> ExprId : {1}".format(name, value))
+                symb_log.debug("  mop : {0} -> ExprId : {1}".format(name, value))
 
-        total = len(self.mop_record)
-        print("-" * 60)
-        print("Total: {0} entries".format(total))
-        print("=" * 60)
+        total = len(self.mop_define)
+        symb_log.debug("-" * 60)
+        symb_log.debug("Total: {0} entries".format(total))
+        symb_log.debug("=" * 60)
 
