@@ -112,35 +112,37 @@ class SymbolicMicroCodeEnvironment:
         return None
 
 
-    def dump(self):
+    def dump(self,logger=None):
         """
         将环境中所有已定义的符号值输出到 IDA 控制台。
         格式: mop_name = expr_value
         """
-        print("=" * 60)
-        print("SymbolicMicroCodeEnvironment dump")
-        print("=" * 60)
+        log = logger if logger is not None else symb_log
+
+        log.debug("=" * 60)
+        log.debug("SymbolicMicroCodeEnvironment dump")
+        log.debug("=" * 60)
 
         if self.irdst is not None:
-            symb_log.debug("IRDst: {0}".format(self.irdst))
+            log.debug("IRDst: {0}".format(self.irdst))
         if len(self.path_conditions) > 0:
-            symb_log.debug("Path conditions (all must hold):")
+            log.debug("Path conditions (all must hold):")
             for i, cond in enumerate(self.path_conditions):
-                symb_log.debug("  [{0}] {1}".format(i, cond))
+                log.debug("  [{0}] {1}".format(i, cond))
 
         if len(self.mop_define) > 0:
-            symb_log.debug("[Registers]")
+            log.debug("[Registers]")
             for mop, value in self.mop_define.items():
                 name = get_mop_name(mop)
-                symb_log.debug("  {0} = {1}".format(name, value))
+                log.debug("  {0} = {1}".format(name, value))
         if len(self.mop_undefind) > 0:
-            symb_log.debug("[Undefine]")
+            log.debug("[Undefine]")
             for mop, value in self.mop_undefind.items():
                 name = get_mop_name(mop)
-                symb_log.debug("  mop : {0} -> ExprId : {1}".format(name, value))
+                log.debug("  mop : {0} -> ExprId : {1}".format(name, value))
 
         total = len(self.mop_define)
-        symb_log.debug("-" * 60)
-        symb_log.debug("Total: {0} entries".format(total))
-        symb_log.debug("=" * 60)
+        log.debug("-" * 60)
+        log.debug("Total: {0} entries".format(total))
+        log.debug("=" * 60)
 

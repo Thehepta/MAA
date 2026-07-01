@@ -174,7 +174,7 @@ class SymbolicMopHistory:
         Always returns a Expr (concrete or symbolic).
         """
         self._execute_microcode()
-        return self._interpreter.eval_mop(searched_mop, self._current_environment)
+        return self._current_environment.lookup(searched_mop)
 
     def get_mop_constant_value(self, searched_mop: mop_t) -> Optional[int]:
         """

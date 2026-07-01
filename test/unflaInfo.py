@@ -303,13 +303,16 @@ def UnFlaInfo(mba):
         father_tracker.reset()
         dispatcher_father_block = mba.get_mblock(dispatcher_father_serial)
         print("MopTracker block:{0}".format(dispatcher_father_serial))
-        father_histories = father_tracker.search_backward(dispatcher_father_block, None)
+        father_histories = father_tracker.search_backward(dispatcher_father_block, None,[dispatch_block.serial])
         if len(father_histories) > 1:
             print("father_block:{0} is  multiple branches".format(dispatcher_father_serial))
             for history in father_histories:
                 history.print_info()
         else:
-            father_histories[0].print_info()
+            if len(father_histories) == 1:
+                father_histories[0].print_info()
+            else:
+                print("father_block:{0} is  len = 0".format(dispatcher_father_serial))
     #     try:
     #         # 还原,分发器到分发器的前驱这条代码路径的混淆
     #         for cur_history in father_histories:

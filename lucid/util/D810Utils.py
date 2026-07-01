@@ -8,11 +8,13 @@ from d810.generic import GenericDispatcherBlockInfo
 from d810.hexrays_helpers import append_mop_if_not_in_list, extract_num_mop
 from d810.hexrays_hooks import InstructionDefUseCollector
 from d810.Expr import ExprInt
+from d810.utils import get_mop_name
 
 from ida_hexrays import mblock_t, mop_t
 import ida_hexrays as hr
 
 from d810.tracker import MopTracker, remove_segment_registers
+from lucid.util import log
 
 FLATTENING_JUMP_OPCODES = [hr.m_jnz, hr.m_jz, hr.m_jae, hr.m_jb, hr.m_ja, hr.m_jbe, hr.m_jg, hr.m_jge, hr.m_jl,
                            hr.m_jle]
@@ -249,7 +251,7 @@ def eval_current_blk(current_block, environment_values):
     for mop, valueNum in environment_values.items():
         microcode_environment.define(mop, ExprInt(valueNum, mop.size))
     microcode_interpreter.eval_blk(current_block,microcode_environment)
-    microcode_environment.dump()
+    microcode_environment.dump(log.console_logger)
 
 
 def eva_blks(start_block, microcode_environment: SymbolicMicroCodeEnvironment,

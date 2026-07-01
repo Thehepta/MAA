@@ -593,6 +593,47 @@ def test_simplify_comparison_less_unsigned():
     print("  [PASS] test_simplify_comparison_less_unsigned")
 
 
+def test_simplify_comparison_greater_signed():
+    """Test signed greater-than (>s), 对应汇编 jg 指令。"""
+    # --- 基础用例：正数之间 ---
+    # 5 >s 3 = 1
+    e = ExprOp('>s', [ExprInt(5, 4), ExprInt(3, 4)], 4)
+    assert simplify(e).as_int() == 1
+    # 3 >s 5 = 0
+    e = ExprOp('>s', [ExprInt(3, 4), ExprInt(5, 4)], 4)
+    assert simplify(e).as_int() == 0
+
+    # --- 有符号语义：负数 vs 正数 ---
+    # -1 (0xFFFFFFFF) >s 1 = 0（负数不大于正数）
+    e = ExprOp('>s', [ExprInt(0xFFFFFFFF, 4), ExprInt(1, 4)], 4)
+    assert simplify(e).as_int() == 0
+    # 1 >s -1 = 1
+    e = ExprOp('>s', [ExprInt(1, 4), ExprInt(0xFFFFFFFF, 4)], 4)
+    assert simplify(e).as_int() == 1
+
+    # --- 与无符号对比：证明 >s 确实按有符号处理 ---
+    # 无符号: 0xFFFFFFFF >u 1 = 1（因为无符号很大）
+    e_u = ExprOp('>u', [ExprInt(0xFFFFFFFF, 4), ExprInt(1, 4)], 4)
+    assert simplify(e_u).as_int() == 1
+    # 有符号: 0xFFFFFFFF >s 1 = 0（因为是 -1）
+    e_s = ExprOp('>s', [ExprInt(0xFFFFFFFF, 4), ExprInt(1, 4)], 4)
+    assert simplify(e_s).as_int() == 0
+
+    # --- 实际的 64 位 jg 场景 ---
+    # jg x6, 0x9D60D6828D7CED1
+    # x6 = 0xDBE8A93F48D4BDC7 (有符号为负), cmp 为正 → 不跳转
+    x6 = ExprInt(0xDBE8A93F48D4BDC7, 8)
+    cmp = ExprInt(0x9D60D6828D7CED1, 8)
+    e = ExprOp('>s', [x6, cmp], 8)
+    assert simplify(e).as_int() == 0  # jg 条件不满足
+
+    # 相等时不大于: 5 >s 5 = 0
+    e = ExprOp('>s', [ExprInt(5, 4), ExprInt(5, 4)], 4)
+    assert simplify(e).as_int() == 0
+
+    print("  [PASS] test_simplify_comparison_greater_signed")
+
+
 def test_symbolic_propagation():
     """Test that symbolic values propagate through operations."""
     x = ExprId("eax", 4)
@@ -731,4 +772,4 @@ test_simplify_overflow = test_overflow_masking
 if __name__ == "__main__":
     # run_all_tests()
     # test_cond_jz_cond()
-    test_expr_int_equal()
+    test_simplify_comparison_greater_signed()
