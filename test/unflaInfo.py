@@ -9,8 +9,9 @@ import ida_range
 from d810 import tracker, utils
 from d810.Environment import SymbolicMicroCodeEnvironment
 from d810.Expr import walk_expr_iter, ExprId, ExprInt, Expr
-from d810.ExprSimplifier import get_branch_condition
+from d810.ExprSimplifier import get_branch_condition,simplify
 from d810.Interpreter import SymbolicMicroCodeInterpreter
+from d810.SymMopMap import SymMopMap
 from d810.generic import GenericDispatcherInfo
 from d810.generic import GenericDispatcherBlockInfo
 from d810.hexrays_formatters import format_mop_t, format_minsn_t
@@ -116,7 +117,7 @@ class ollvmflaCase(object):
     def __init__(self,paths,mba):
         self.path_conds = []
         self.dst_blk =None
-        self.depend_mops = []
+        self.depends = SymMopMap()
         self.paths = paths
         self.mba = mba
 
@@ -141,14 +142,40 @@ class ollvmflaCase(object):
             for node in nodes:
                 if node.is_id():
                     mop = microcode_environment.mop_undefind[node]
-                    self.add_depend_mop(mop)
+                    self.add_depend_mop(mop,node)
 
-    def updateStatus(self, path_cond:Expr, blk):
+    def updateStatus(self, path_cond:Expr, blk:int):
         self.path_conds.append(path_cond)
         self.dst_blk = blk
 
-    def add_depend_mop(self,depend_mop):
-        append_mop_if_not_in_list(depend_mop, self.depend_mops)
+    def add_depend_mop(self,depend_mop,depend_expr):
+        self.depends[depend_mop] = depend_expr
+
+    def is_satisfy(self, mop_def_list: SymMopMap):
+
+        replacement_map = {}
+        for mop_used, mop_expr_value in mop_def_list.items():
+            mop_expr = self.depends[mop_used]
+            # 假设 mop_expr 是 ExprId，用 mop_expr_value 替换
+            replacement_map[mop_expr] = mop_expr_value
+            # 或者如果是按名字替换：
+            # if mop_expr.is_id():
+            #     replacement_map[mop_expr.name] = mop_expr_value
+        # 替换并化简所有路径约束
+        self.tmp_path_conds = []
+        for cond in self.path_conds:
+            # 替换
+            replaced = cond.replace(replacement_map)
+            # 化简
+            simplified = simplify(replaced)
+            self.tmp_path_conds.append(simplified)
+
+            # 检查是否为 True (值为 1)
+            if not simplified.is_int() or simplified.as_int() != 1:
+                return False  # 有约束不满足
+
+        return True  # 所有约束都满足
+
 
 class ollvmflaSwitch(object):
 
@@ -156,10 +183,16 @@ class ollvmflaSwitch(object):
         self.switch_status = []
         self.cases = []
 
-    def add_case(self,case,list_status_mop: List[mop_t]):
+    def add_case(self,case:ollvmflaCase):
         self.cases.append(case)
-        for mop_used in list_status_mop:
+        for mop_used,expr in case.depends.items():
             append_mop_if_not_in_list(mop_used, self.switch_status)
+
+    def get_real_blk(self,mop_def_list:SymMopMap):
+        for case in self.cases:
+            if case.is_satisfy(mop_def_list) is True:
+                return case.dst_blk
+        return -1
 
     def dump(self):
         print("ollvmflaSwitch dump")
@@ -295,7 +328,7 @@ def UnFlaInfo(mba):
     for paths in all_paths:
         unflacase = ollvmflaCase(paths, blk.mba)
         unflacase.parse()
-        unflaSwitch.add_case(unflacase, unflacase.depend_mops)
+        unflaSwitch.add_case(unflacase)
     unflaSwitch.dump()
 
     for dispatcher_father_serial in dispatch_block.predset:
@@ -307,10 +340,16 @@ def UnFlaInfo(mba):
         if len(father_histories) > 1:
             print("father_block:{0} is  multiple branches".format(dispatcher_father_serial))
             for history in father_histories:
-                history.print_info()
+                if history.is_resolved() is True:
+                    history.print_info()
+                    target_blk = unflaSwitch.get_real_blk(history._current_environment.mop_define)
+                    print("target_blk:",target_blk)
         else:
             if len(father_histories) == 1:
-                father_histories[0].print_info()
+                if father_histories[0].is_resolved() is True:
+                    father_histories[0].print_info()
+                    target_blk = unflaSwitch.get_real_blk(father_histories[0]._current_environment.mop_define)
+                    print("target_blk:",target_blk)
             else:
                 print("father_block:{0} is  len = 0".format(dispatcher_father_serial))
     #     try:

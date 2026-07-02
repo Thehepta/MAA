@@ -28,23 +28,6 @@ from d810.hexrays_formatters import format_minsn_t, format_mop_t
 
 logger = logging.getLogger('D810.tracker')
 
-
-def expr_to_int(expr: Expr) -> Optional[int]:
-    """
-    Try to extract a concrete integer from a symbolic expression.
-    Returns None if the expression is symbolic (not fully resolved).
-    """
-    if expr is None:
-        return None
-    return expr.as_int()
-
-
-def mop_to_symbolic_name(mop: mop_t) -> str:
-    """Generate a symbolic name for a mop_t operand."""
-    return format_mop_t(mop)
-
-
-
 class BlockInfo(object):
     def __init__(self, blk: mblock_t, ins=None):
         self.blk = blk
@@ -115,7 +98,7 @@ class SymbolicMopHistory:
             return True
         for x in self.unresolved_mop_list:
             val = self._initial_environment.lookup(x, create_symbol=False)
-            if val is None:
+            if val.is_int() is False:
                 return False
         return True
 
@@ -168,6 +151,10 @@ class SymbolicMopHistory:
         self._is_dirty = False
         return True
 
+    def get_mop_expr_list(self):
+        self._execute_microcode()
+        return self._current_environment.mop_undefind
+
     def get_mop_symbolic_value(self, searched_mop: mop_t) -> Expr:
         """
         Get the symbolic value of a mop after executing the path.
@@ -183,7 +170,9 @@ class SymbolicMopHistory:
         Backward compatible with MopHistory.get_mop_constant_value.
         """
         expr = self.get_mop_symbolic_value(searched_mop)
-        return expr_to_int(expr)
+        if expr is None:
+            return None
+        return expr.as_int()
 
     def print_info(self, detailed_info=False):
         formatted_mop_searched_list = [format_mop_t(x) for x in self.searched_mop_list]
@@ -298,7 +287,6 @@ class MopTracker(object):
             logger.debug("MopTracker unresolved: (call): {0}".format(self.history.block_serial_path))
             self.history.unresolved_mop_list = [x for x in self._unresolved_mops]
             return [self.history]
-
         if stop_at_first_duplication:
             self.history.unresolved_mop_list = [x for x in self._unresolved_mops]
             return [self.history]

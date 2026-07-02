@@ -33,10 +33,8 @@ def get_branch_constraints(expr_cond: ExprCond):
 
 def test_cond_jz_expr_replace():
 
-    # 2. 第二条表达式
-    # ((x29:8 == 0xDBE8A93F48D4BDC7:8):1 ? 5:4 : 21:4):4
     x29 = ExprId("x29", 8)
-    c2 = ExprOp("==", [x29, ExprInt(0xDBE8A93F48D4BDC7, 8)],4)
+    c2 = ExprOp("==", [x29, ExprInt(0xDBE8A93F48D4BDC7, 8)], 4)
     e2 = ExprCond(c2, ExprInt(5, 4), ExprInt(21, 4))
     c_true, c_false = get_branch_constraints(e2)
     e3 = e2.replace({"x29": ExprInt(0xDBE8A93F48D4BDC7, 8)})
@@ -45,8 +43,38 @@ def test_cond_jz_expr_replace():
     # 方式2：用表达式对象替换
     e4 = e2.replace({x29: ExprInt(0x1234, 8)})
     assert simplify(e4).as_int() == 21
-
     print("  [PASS] test_cond_jz_expr_replace")
+
+
+def test_cond_jz_expr_replace2():
+    """测试多个表达式的批量替换"""
+    # 构造多个表达式
+    x29 = ExprId("x29", 8)
+    x6 = ExprId("x6", 8)
+
+    # 表达式列表
+    exprs = [
+        ExprOp("==", [x29, ExprInt(0xDBE8A93F48D4BDC7, 8)], 4),
+        ExprOp(">s", [x6, ExprInt(0x9D60D6828D7CED1, 8)], 4),
+        ExprOp("+", [x29, x6], 8),
+    ]
+
+    # 替换映射
+    values = {
+        x29: ExprInt(0xDBE8A93F48D4BDC7, 8),
+        x6: ExprInt(0x1000000000000000, 8),
+    }
+
+    # 批量替换
+    replaced = [e.replace(values) for e in exprs]
+    simplified = [simplify(r) for r in replaced]
+
+    # 验证结果
+    assert simplified[0].is_int() and simplified[0].as_int() == 1  # x29 == 目标值 → True
+    assert simplified[1].is_int() and simplified[1].as_int() == 1  # x6 > 目标值 → True
+    assert simplified[2].is_int()  # x29 + x6 → 具体数值
+
+    print("  [PASS] test_cond_jz_expr_replace2")
 
 
 def test_walk_traverse():
@@ -818,6 +846,7 @@ def run_all_tests():
     test_replace_subexpr()
 
     test_cond_jz_expr_replace()
+    test_cond_jz_expr_replace2()
 
     test_8bit()
     test_16bit()
@@ -840,5 +869,6 @@ test_simplify_overflow = test_overflow_masking
 
 
 if __name__ == "__main__":
-    run_all_tests()
-    # test_cond_jz_cond()
+    # run_all_tests()
+    test_cond_jz_expr_replace()
+    test_cond_jz_expr_replace2()
