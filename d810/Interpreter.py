@@ -76,42 +76,42 @@ class SymbolicMicroCodeInterpreter:
         res_size = ins.d.size if ins.d.size > 0 else 8
 
         if ins.opcode == m_ldx:
-            return self._eval_load(ins, environment, blk)
+            return self._eval_load(blk,ins, environment)
         elif ins.opcode == m_stx:
             return self._eval_store(ins, environment)
 
         # Unary operations
         elif ins.opcode == m_mov:
-            return self._apply_size(self.eval(ins.l, environment,blk), res_size)
+            return self._apply_size(self.eval(blk,ins.l, environment), res_size)
         elif ins.opcode == m_neg:
-            arg = self.eval(ins.l, environment,blk)
+            arg = self.eval(blk,ins.l, environment)
             return simplify(ExprOp('neg', [arg], res_size))
         elif ins.opcode == m_lnot:
-            arg = self.eval(ins.l, environment,blk)
+            arg = self.eval(blk,ins.l, environment)
             return simplify(ExprOp('lnot', [arg], res_size))
         elif ins.opcode == m_bnot:
-            arg = self.eval(ins.l, environment,blk)
+            arg = self.eval(blk,ins.l, environment)
             return simplify(ExprOp('~', [arg], res_size))
         elif ins.opcode == m_xds:
             # Sign-extend
-            arg = self.eval(ins.l, environment,blk)
+            arg = self.eval(blk,ins.l, environment)
             if arg.is_int():
                 signed_val = unsigned_to_signed(arg.as_int(), ins.l.size)
                 return ExprInt(signed_to_unsigned(signed_val, res_size) & _size_mask(res_size), res_size)
             return simplify(ExprOp('xds', [arg], res_size))
         elif ins.opcode == m_xdu:
             # Zero-extend
-            arg = self.eval(ins.l, environment,blk)
+            arg = self.eval(blk,ins.l, environment)
             if arg.is_int():
                 return ExprInt(arg.as_int() & _size_mask(res_size), res_size)
             return simplify(ExprOp('xdu', [arg], res_size))
         elif ins.opcode == m_low:
             # Truncate (low part)
-            arg = self.eval(ins.l, environment,blk)
+            arg = self.eval(blk,ins.l, environment)
             return self._apply_size(arg, res_size)
         elif ins.opcode == m_high:
             # High part
-            arg = self.eval(ins.l, environment,blk)
+            arg = self.eval(blk,ins.l, environment)
             if arg.is_int():
                 shift = (ins.l.size - res_size) * 8
                 return ExprInt((arg.as_int() >> shift) & _size_mask(res_size), res_size)
@@ -151,7 +151,7 @@ class SymbolicMicroCodeInterpreter:
         elif ins.opcode == m_ofadd:
             return self._eval_binop(blk,'ofadd', ins, environment, res_size)
         elif ins.opcode == m_sets:
-            left = self.eval(ins.l, environment,blk)
+            left = self.eval(blk,ins.l, environment)
             # sets only takes left operand for sign check
             return simplify(ExprOp('sets', [left, ExprInt(0, ins.l.size)], res_size))
         elif ins.opcode == m_seto:
@@ -184,8 +184,8 @@ class SymbolicMicroCodeInterpreter:
 
     def _eval_binop(self, blk: Optional[mblock_t],op: str, ins: minsn_t, environment: SymbolicMicroCodeEnvironment, res_size: int) -> Expr:
         """Evaluate a binary operation symbolically."""
-        left = self.eval(ins.l, environment,blk)
-        right = self.eval(ins.r, environment,blk)
+        left = self.eval(blk,ins.l, environment)
+        right = self.eval(blk,ins.r, environment)
         return simplify(ExprOp(op, [left, right], res_size))
 
     def _apply_size(self, expr: Expr, size: int) -> Expr:
@@ -213,10 +213,10 @@ class SymbolicMicroCodeInterpreter:
             return None
 
         if ins.opcode == m_jcnd:
-            return self.eval(ins.l, environment,blk)
+            return self.eval(blk,ins.l, environment)
 
-        left = self.eval(ins.l, environment,blk)
-        right = self.eval(ins.r, environment,blk)
+        left = self.eval(blk,ins.l, environment)
+        right = self.eval(blk,ins.r, environment)
 
         if ins.opcode == m_jnz:
             return simplify(ExprOp('!=', [left, right], 1))
@@ -275,7 +275,7 @@ class SymbolicMicroCodeInterpreter:
             return True
 
         if ins.opcode == m_jtbl:
-            left_value = self.eval(ins.l, environment,cur_blk)
+            left_value = self.eval(cur_blk,ins.l, environment)
             if not left_value.is_int():
                 interpreter.debug("jtbl index is symbolic, cannot resolve")
                 return False
@@ -288,7 +288,7 @@ class SymbolicMicroCodeInterpreter:
                         next_blk_serial = target_block_serial
                         break
         elif ins.opcode == m_ijmp:
-            dest_expr = self.eval(ins.d, environment,cur_blk)
+            dest_expr = self.eval(cur_blk,ins.d, environment)
             if not dest_expr.is_int():
                 interpreter.debug("ijmp destination is symbolic, cannot resolve")
                 return False
@@ -333,10 +333,10 @@ class SymbolicMicroCodeInterpreter:
         # Unknown helper: return symbolic
         return ExprId("call_{}".format(helper_name), res_size)
 
-    def _eval_load(self,ins: minsn_t, environment: SymbolicMicroCodeEnvironment,cur_blk:mblock_t) -> Optional[Expr]:
+    def _eval_load(self,cur_blk:mblock_t,ins: minsn_t, environment: SymbolicMicroCodeEnvironment) -> Optional[Expr]:
         """Evaluate memory load symbolically."""
         res_size = ins.d.size if ins.d.size > 0 else 8
-        addr_expr = self.eval(ins.r, environment,cur_blk)
+        addr_expr = self.eval(cur_blk,ins.r, environment)
 
         if ins.opcode == m_ldx:
             formatted_seg_register = format_mop_t(ins.l)
@@ -386,7 +386,7 @@ class SymbolicMicroCodeInterpreter:
         interpreter.debug("Symbolic call to: {0}".format(call_target))
         return ExprId("call_{}".format(call_target), res_size)
 
-    def eval(self,mop: mop_t, environment: SymbolicMicroCodeEnvironment,cur_blk:Optional[mblock_t] = None) -> Expr:
+    def eval(self, cur_blk:Optional[mblock_t] ,mop: mop_t, environment: SymbolicMicroCodeEnvironment) -> Expr:
         """
         Evaluate a microcode operand symbolically.
         Returns a Expr (may be concrete ExprInt or symbolic).
@@ -437,15 +437,6 @@ class SymbolicMicroCodeInterpreter:
         interpreter.debug("Unsupported mop type '{0}': '{1}' - creating symbol".format(
             mop_type_to_string(mop.t), format_mop_t(mop)))
         return ExprId("mop_{}".format(format_mop_t(mop)), size)
-
-    def eval_mop(self, mop: mop_t, environment: Optional[SymbolicMicroCodeEnvironment] = None) -> Expr:
-        """
-        Evaluate a mop and return symbolic expression.
-        Never raises (returns symbolic on failure).
-        """
-        if environment is None:
-            environment = self.global_environment
-        return self.eval(mop, environment)
 
     def eval_instruction(self, blk: mblock_t, ins: minsn_t,
                          environment: Optional[SymbolicMicroCodeEnvironment] = None,

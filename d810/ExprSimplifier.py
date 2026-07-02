@@ -187,7 +187,7 @@ def _simplify_binary(op: str, left: Expr, right: Expr, size: int, mask: int) -> 
 
     # ---- Full constant folding ----
     if left.is_int() and right.is_int():
-        result = _eval_concrete_binary(op, left.as_int(), right.as_int(), size, mask)
+        result = _eval_concrete_binary(op, left.as_int(),left.size,right.as_int(),right.size, size, mask)
         if result is not None:
             return ExprInt(result, size)
 
@@ -289,7 +289,7 @@ def _resize(expr: Expr, size: int, mask: int) -> Expr:
     return expr
 
 
-def _eval_concrete_binary(op: str, left: int, right: int, size: int, mask: int) -> Optional[int]:
+def _eval_concrete_binary(op: str, left: int, left_size: int,right: int,right_size: int, size: int, mask: int) -> Optional[int]:
     """Evaluate a binary operation on two concrete values. Returns None if op is unsupported."""
     try:
         if op == '+':
@@ -305,8 +305,8 @@ def _eval_concrete_binary(op: str, left: int, right: int, size: int, mask: int) 
         elif op == '/s':
             if right == 0:
                 return None
-            left_s = unsigned_to_signed(left, size)
-            right_s = unsigned_to_signed(right, size)
+            left_s = unsigned_to_signed(left, left_size)
+            right_s = unsigned_to_signed(right, right_size)
             result = int(left_s / right_s)  # truncate toward zero
             return signed_to_unsigned(result, size) & mask
         elif op == '%':
@@ -316,8 +316,8 @@ def _eval_concrete_binary(op: str, left: int, right: int, size: int, mask: int) 
         elif op == '%s':
             if right == 0:
                 return None
-            left_s = unsigned_to_signed(left, size)
-            right_s = unsigned_to_signed(right, size)
+            left_s = unsigned_to_signed(left, left_size)
+            right_s = unsigned_to_signed(right, right_size)
             # Python's % has different sign behavior; use manual truncation
             result = left_s - int(left_s / right_s) * right_s
             return signed_to_unsigned(result, size) & mask
@@ -333,7 +333,7 @@ def _eval_concrete_binary(op: str, left: int, right: int, size: int, mask: int) 
             return (left >> right) & mask
         elif op == '>>a':
             # Arithmetic shift right
-            left_s = unsigned_to_signed(left, size)
+            left_s = unsigned_to_signed(left, left_size)
             result = left_s >> right
             return signed_to_unsigned(result, size) & mask
         elif op == '==':
@@ -349,26 +349,26 @@ def _eval_concrete_binary(op: str, left: int, right: int, size: int, mask: int) 
         elif op == '>=u':
             return 1 if left >= right else 0
         elif op == '<s':
-            return 1 if unsigned_to_signed(left, size) < unsigned_to_signed(right, size) else 0
+            return 1 if unsigned_to_signed(left, left_size) < unsigned_to_signed(right, right_size) else 0
         elif op == '<=s':
-            return 1 if unsigned_to_signed(left, size) <= unsigned_to_signed(right, size) else 0
+            return 1 if unsigned_to_signed(left, left_size) <= unsigned_to_signed(right, right_size) else 0
         elif op == '>s':
-            return 1 if unsigned_to_signed(left, size) > unsigned_to_signed(right, size) else 0
+            return 1 if unsigned_to_signed(left, left_size) > unsigned_to_signed(right, right_size) else 0
         elif op == '>=s':
-            return 1 if unsigned_to_signed(left, size) >= unsigned_to_signed(right, size) else 0
+            return 1 if unsigned_to_signed(left, left_size) >= unsigned_to_signed(right, right_size) else 0
         elif op == 'cfadd':
             result = left + right
             return 1 if result > mask else 0
         elif op == 'ofadd':
             bits = size * 8
-            left_s = unsigned_to_signed(left, size)
-            right_s = unsigned_to_signed(right, size)
+            left_s = unsigned_to_signed(left, left_size)
+            right_s = unsigned_to_signed(right, right_size)
             result_s = left_s + right_s
             max_val = (1 << (bits - 1)) - 1
             min_val = -(1 << (bits - 1))
             return 1 if (result_s > max_val or result_s < min_val) else 0
         elif op == 'sets':
-            return 1 if unsigned_to_signed(left, size) < 0 else 0
+            return 1 if unsigned_to_signed(left, left_size) < 0 else 0
         elif op == 'parity':
             # Parity of (left - right) lower byte
             diff = (left - right) & 0xFF
@@ -378,8 +378,8 @@ def _eval_concrete_binary(op: str, left: int, right: int, size: int, mask: int) 
             right = right % bits
             return ((left >> right) | (left << (bits - right))) & mask
         elif op == 'seto':
-            left_s = unsigned_to_signed(left, size)
-            right_s = unsigned_to_signed(right, size)
+            left_s = unsigned_to_signed(left, left_size)
+            right_s = unsigned_to_signed(right, right_size)
             diff_s = left_s - right_s
             bits = size * 8
             max_val = (1 << (bits - 1)) - 1

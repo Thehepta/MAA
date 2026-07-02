@@ -17,8 +17,7 @@ from d810.Expr import (
     ExprInt, ExprId, ExprMem, ExprOp,
     ExprSlice, ExprCompose, ExprCond, walk_expr_iter
 )
-from d810.ExprSimplifier import simplify
-
+from d810.ExprSimplifier import simplify, unsigned_to_signed,signed_to_unsigned
 
 
 def get_branch_constraints(expr_cond: ExprCond):
@@ -32,29 +31,22 @@ def get_branch_constraints(expr_cond: ExprCond):
     cond_false = ExprOp("==", [cond, bit_zero],4)
     return cond_true, cond_false
 
-def test_cond_jz_cond():
+def test_cond_jz_expr_replace():
 
     # 2. 第二条表达式
     # ((x29:8 == 0xDBE8A93F48D4BDC7:8):1 ? 5:4 : 21:4):4
     x29 = ExprId("x29", 8)
     c2 = ExprOp("==", [x29, ExprInt(0xDBE8A93F48D4BDC7, 8)],4)
     e2 = ExprCond(c2, ExprInt(5, 4), ExprInt(21, 4))
-    print("原始表达式：", e2)
     c_true, c_false = get_branch_constraints(e2)
-    print("走5的条件：", simplify(c_true))
-    print("走21的条件：", simplify(c_false))
-
-    # 测试替换功能
-    print("\n--- 测试替换功能 ---")
-    # 方式1：用变量名替换
     e3 = e2.replace({"x29": ExprInt(0xDBE8A93F48D4BDC7, 8)})
-    print("替换 x29 后：", e3)
-    print("化简后：", simplify(e3))
+    assert simplify(e3).as_int() == 5
 
     # 方式2：用表达式对象替换
     e4 = e2.replace({x29: ExprInt(0x1234, 8)})
-    print("\n替换 x29 为 0x1234：", e4)
-    print("化简后：", simplify(e4))
+    assert simplify(e4).as_int() == 21
+
+    print("  [PASS] test_cond_jz_expr_replace")
 
 
 def test_walk_traverse():
@@ -104,8 +96,6 @@ def test_replace_simple():
 
     # Replace by variable name
     result = e.replace({"eax": ExprInt(10, 4)})
-    print("替换前：", e)
-    print("替换后：", result)
     simplified = simplify(result)
     assert simplified.is_int()
     assert simplified.as_int() == 15
@@ -121,8 +111,6 @@ def test_replace_multiple():
 
     # Replace both x and y
     result = e.replace({"x": ExprInt(3, 4), "y": ExprInt(4, 4)})
-    print("替换前：", e)
-    print("替换后：", result)
     simplified = simplify(result)
 
     assert simplified.is_int()
@@ -141,8 +129,6 @@ def test_replace_nested():
 
     # Replace x with 10
     result = e.replace({"x": ExprInt(10, 4)})
-    print("替换前：", e)
-    print("替换后：", result)
     simplified = simplify(result)
     # 10 > 5 is true, so should get 10 + 1 = 11
     assert simplified.is_int()
@@ -158,8 +144,6 @@ def test_replace_partial():
 
     # Only replace x, leave y symbolic
     result = e.replace({"x": ExprInt(5, 4)})
-    print("替换前：", e)
-    print("替换后：", result)
     # Should be (5 + y), still symbolic
     assert result.is_op()
     assert result.op == '+'
@@ -178,8 +162,6 @@ def test_replace_subexpr():
 
     # Replace the entire (x + y) subexpression
     result = e.replace({subexpr: ExprInt(10, 4)})
-    print("替换前：", e)
-    print("替换后：", result)
     simplified = simplify(result)
     assert simplified.is_int()
     assert simplified.as_int() == 20  # 10 * 2
@@ -691,6 +673,86 @@ def test_repr():
     print("  [PASS] test_repr")
 
 
+
+def test_8bit():
+    """测试 8 位有符号转换"""
+    # 正数范围: 0 ~ 127
+    assert unsigned_to_signed(0, 1) == 0
+    assert unsigned_to_signed(1, 1) == 1
+    assert unsigned_to_signed(127, 1) == 127
+
+    # 负数范围: 128 ~ 255 → -128 ~ -1
+    assert unsigned_to_signed(128, 1) == -128
+    assert unsigned_to_signed(255, 1) == -1
+    assert unsigned_to_signed(200, 1) == -56
+
+    print("  [PASS] test_8bit")
+
+
+def test_16bit():
+    """测试 16 位有符号转换"""
+    # 正数
+    assert unsigned_to_signed(0x7FFF, 2) == 32767
+
+    # 负数
+    assert unsigned_to_signed(0x8000, 2) == -32768
+    assert unsigned_to_signed(0xFFFF, 2) == -1
+
+    print("  [PASS] test_16bit")
+
+
+def test_32bit():
+    """测试 32 位有符号转换"""
+    # 正数
+    assert unsigned_to_signed(0x7FFFFFFF, 4) == 2147483647
+
+    # 负数
+    assert unsigned_to_signed(0x80000000, 4) == -2147483648
+    assert unsigned_to_signed(0xFFFFFFFF, 4) == -1
+
+    print("  [PASS] test_32bit")
+
+
+def test_64bit():
+    """测试 64 位有符号转换"""
+    # 正数
+    assert unsigned_to_signed(0x7FFFFFFFFFFFFFFF, 8) == 9223372036854775807
+
+    # 负数
+    assert unsigned_to_signed(0x8000000000000000, 8) == -9223372036854775808
+    assert unsigned_to_signed(0xFFFFFFFFFFFFFFFF, 8) == -1
+
+    assert unsigned_to_signed(0xDBE8A93F48D4BDC7, 8)  == -2600642695536525881
+    assert signed_to_unsigned(-2600642695536525881, 8) ==  0xDBE8A93F48D4BDC7
+
+    print( hex(signed_to_unsigned(-0x241756C0B72B4239,8)))
+
+    assert unsigned_to_signed(0x9D60D6828D7CED1, 8) == 708768732370423505
+
+    print("  [PASS] test_64bit")
+
+
+def test_jg_condition():
+    """测试你的 jg 条件判断场景"""
+    x6 = 0xDBE8A93F48D4BDC7
+    cmp = 0x9D60D6828D7CED1
+
+    # 0xDBE8A93F48D4BDC7
+    # 0xDBE8A93F48D4BCC7
+    x6_signed = unsigned_to_signed(x6, 8)
+    cmp_signed = unsigned_to_signed(cmp, 8)
+
+    # jg 是有符号 >，判断 x6 > cmp
+    result = x6_signed > cmp_signed
+
+    assert result == False
+
+    print("  [PASS] test_jg_condition")
+
+
+
+
+
 def run_all_tests():
     """Run all tests."""
     print("=" * 60)
@@ -755,7 +817,15 @@ def run_all_tests():
     test_replace_partial()
     test_replace_subexpr()
 
-    test_cond_jz_cond()
+    test_cond_jz_expr_replace()
+
+    test_8bit()
+    test_16bit()
+    test_32bit()
+    test_64bit()
+    test_jg_condition()
+
+    test_simplify_comparison_greater_signed()
 
     print("\n" + "=" * 60)
     print("ALL TESTS PASSED!")
@@ -770,6 +840,5 @@ test_simplify_overflow = test_overflow_masking
 
 
 if __name__ == "__main__":
-    # run_all_tests()
+    run_all_tests()
     # test_cond_jz_cond()
-    test_simplify_comparison_greater_signed()
