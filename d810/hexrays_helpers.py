@@ -188,6 +188,22 @@ def equal_mops_bypass_xdu(lo: mop_t, ro: mop_t) -> bool:
         return equal_mops_bypass_xdu(lo, ro.d.l)
     return equal_mops_ignore_size(lo, ro)
 
+# def create_mop(expr, mba=None):
+#
+#     mop = mop_t()
+#     if expr.t == mop_S:
+#         mop.make_stkvar(mba, expr.s.off)
+#         return mop
+#     elif expr.t == mop_v:
+#         mop.make_gvar(expr.g)
+#         return mop
+#     elif expr.t == mop_r:
+#         mop.make_reg(expr.r)
+#         return mop
+#     elif expr.t == mop_l:
+#         return expr.l
+#     else:
+#         return "unsport mop type"
 
 def equal_mops_ignore_size(lo: mop_t, ro: mop_t) -> bool:
     if (lo is None) or (ro is None):

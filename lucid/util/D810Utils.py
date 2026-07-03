@@ -5,6 +5,7 @@ from d810.Environment import SymbolicMicroCodeEnvironment
 from d810.Interpreter import SymbolicMicroCodeInterpreter
 from d810.generic import GenericDispatcherInfo
 from d810.generic import GenericDispatcherBlockInfo
+from d810.hexrays_formatters import opcode_to_string, mop_type_to_string, get_mop_content
 from d810.hexrays_helpers import append_mop_if_not_in_list, extract_num_mop
 from d810.hexrays_hooks import InstructionDefUseCollector
 from d810.Expr import ExprInt
@@ -311,3 +312,13 @@ def eva_blks(start_block, microcode_environment: SymbolicMicroCodeEnvironment,
         break
 
     return microcode_environment
+
+def show_insn_info(ins):
+
+    print("op:{0}     type:{1} content:{2}".format(opcode_to_string(ins.opcode), type(ins.opcode), ins.opcode))
+    print("insn.l:{0} type:{1} content:{2}".format(ins.l.dstr(), mop_type_to_string(ins.l.t),
+                                                    get_mop_content(ins.l)))
+    print("insn.r:{0} type:{1} content:{2}".format(ins.r.dstr(), mop_type_to_string(ins.r.t),
+                                                    get_mop_content(ins.r)))
+    print("insn.d:{0} type:{1} content:{2}".format(ins.d.dstr(), mop_type_to_string(ins.d.t),
+                                                    get_mop_content(ins.d)))

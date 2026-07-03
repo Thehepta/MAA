@@ -1,13 +1,13 @@
 import ctypes
 
-import ida_ida
 import ida_funcs
 import ida_graph
 import ida_idaapi
 import ida_kernwin
 import ida_hexrays
 
-from PySide6 import QtWidgets, QtGui, QtCore
+from PySide6 import QtWidgets, QtCore
+from lucid.util.D810Utils import show_insn_info
 from shiboken6 import wrapInstance
 
 from lucid.ui.graph import show_microcode_graph
@@ -638,6 +638,47 @@ class LayerListWidget(QtWidgets.QListWidget):
 
         self.setCurrentRow(next_row)
 
+
+class InsnSubTree(ida_kernwin.action_handler_t):
+
+    def __init__(self, parent,ins_token):
+        ida_kernwin.action_handler_t.__init__(self)
+        self.parent = parent
+        self.ins_token = ins_token
+
+    def activate(self, ctx):
+        self.parent.controller.show_subtree(self.ins_token)
+
+    def update(self, ctx):
+        return ida_kernwin.AST_ENABLE_ALWAYS
+
+class InsnInfo(ida_kernwin.action_handler_t):
+
+    def __init__(self, parent,ins_token):
+        ida_kernwin.action_handler_t.__init__(self)
+        self.parent = parent
+        self.ins_token = ins_token
+
+    def activate(self, ctx):
+        show_insn_info( self.ins_token.insn)
+
+    def update(self, ctx):
+        return ida_kernwin.AST_ENABLE_ALWAYS
+
+
+class MicrocodeGraph(ida_kernwin.action_handler_t):
+
+    def __init__(self, parent):
+        ida_kernwin.action_handler_t.__init__(self)
+        self.parent = parent
+
+    def activate(self, ctx):
+        self.parent.create_microcode_graph()
+
+    def update(self, ctx):
+        return ida_kernwin.AST_ENABLE_ALWAYS
+
+
 class MicrocodeView(ida_kernwin.simplecustviewer_t):
     """
     An IDA-based text area that will render the Hex-Rays microcode.
@@ -710,27 +751,28 @@ class MicrocodeView(ida_kernwin.simplecustviewer_t):
         self.filter = FilterMenu(qmenu)
         qmenu.installEventFilter(self.filter)
 
+        desc2 = ida_kernwin.action_desc_t(None, 'show microcode graph G', MicrocodeGraph(self))
+        ida_kernwin.attach_dynamic_action_to_popup(form, popup_handle, desc2, None)
+
         ins_token = self.model.mtext.get_ins_for_line(self.model.current_line)
         if not ins_token:
             return False
 
-        class MyHandler(ida_kernwin.action_handler_t):
-            def activate(self, ctx):
-                controller.show_subtree(ins_token)
-
-            def update(self, ctx):
-                return ida_kernwin.AST_ENABLE_ALWAYS
-
-        desc = ida_kernwin.action_desc_t(None, 'View subtree', MyHandler())
+        desc = ida_kernwin.action_desc_t(None, 'View current insn subtree', InsnSubTree(self,ins_token))
         ida_kernwin.attach_dynamic_action_to_popup(form, popup_handle, desc, None)
 
+        desc1 = ida_kernwin.action_desc_t(None, 'View current insn info', InsnInfo(self,ins_token))
+        ida_kernwin.attach_dynamic_action_to_popup(form, popup_handle, desc1, None)
         return True
 
     def OnKeydown(self, vkey, shift):
         if vkey == ord("G"):
-            func_name = ida_funcs.get_func_name(self.model.current_function)
-            mmat = self.model.active_maturity
-            show_microcode_graph(self.model.mtext.mba,func_name+":"+maturity_kv.get(mmat),None)
+            self.create_microcode_graph()
+
+    def create_microcode_graph(self):
+        func_name = ida_funcs.get_func_name(self.model.current_function)
+        mmat = self.model.active_maturity
+        show_microcode_graph(self.model.mtext.mba, func_name + ":" + maturity_kv.get(mmat), None)
 #-----------------------------------------------------------------------------
 # Util
 #-----------------------------------------------------------------------------

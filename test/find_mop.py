@@ -12,6 +12,7 @@ import ida_kernwin as kw
 import traceback
 
 from d810.cfg_utils import insert_nop_blk, change_1way_block_successor, change_2way_block_conditional_successor
+from d810.hexrays_formatters import opcode_to_string, mop_type_to_string, get_mop_content
 from d810.hexrays_hooks import InstructionDefUseCollector
 from ida_hexrays import mblock_t
 from lucid.ui.graph import show_microcode_graph
@@ -19,8 +20,8 @@ from lucid.ui.graph import show_microcode_graph
 
 
 def start():
-    import pydevd_pycharm
-    pydevd_pycharm.settrace('localhost', port=31235, stdoutToServer=True, stderrToServer=True)
+    # import pydevd_pycharm
+    # pydevd_pycharm.settrace('localhost', port=31235, stdoutToServer=True, stderrToServer=True)
     sel, sea, eea = kw.read_range_selection(None)
     pfn = ida_funcs.get_func(kw.get_screen_ea())
     if not sel and not pfn:
@@ -51,19 +52,20 @@ def start():
     hf = hr.hexrays_failure_t()
     ml = hr.mlist_t()
     mba = hr.gen_microcode(mbr, hf, ml, hr.DECOMP_WARNINGS, mmat)
-    block = mba.get_mblock(1)
+    block = mba.get_mblock(5)
 
     ins = block.head
-    while ins:
-        print(ins.dstr())
-        ins_mop_info = InstructionDefUseCollector()
-        ins.for_all_ops(ins_mop_info)
-        for target_mop in ins_mop_info.target_mops:
-            width = target_mop.size
-            name = ida_hexrays.get_mreg_name(target_mop.r, width)
-            if name == "x0":
-                print("found:",ins.dstr())
-        ins = ins.next
+    print("op:{0}     type:{1} content:{2}:".format(opcode_to_string(ins.opcode),type(ins.opcode),ins.opcode))
+    print("insn.l:{0} type:{1} content:{2}:".format(ins.l.dstr(),mop_type_to_string(ins.l.t),get_mop_content(ins.l)))
+    print("insn.l:{0} type:{1} content:{2}:".format(ins.r.dstr(),mop_type_to_string(ins.r.t),get_mop_content(ins.r)))
+    print("insn.l:{0} type:{1} content:{2}:".format(ins.d.dstr(),mop_type_to_string(ins.d.t),get_mop_content(ins.d)))
+
+    print("found:", ins.dstr())
+    print("found:", ins.l.dstr())
+    print("found:", type(ins.l.dstr()))
+    print("found:", ins.d.dstr())
+
+
     defined_mops = []
 if __name__ == '__main__':  # 也可以直接在脚本里执行
     try:

@@ -16,13 +16,14 @@ from d810.generic import GenericDispatcherInfo
 from d810.generic import GenericDispatcherBlockInfo
 from d810.hexrays_formatters import format_mop_t, format_minsn_t
 from d810.hexrays_helpers import append_mop_if_not_in_list, extract_num_mop, CONTROL_FLOW_OPCODES
+from d810.tracker import duplicate_histories
 from d810.utils import get_mop_name
 
 from ida_hexrays import mblock_t, mop_t, optblock_t, minsn_visitor_t, mbl_array_t,get_mreg_name
 import ida_hexrays as hr
 import ida_kernwin as kw
 import traceback
-
+import ida_dbg
 
 FLATTENING_JUMP_OPCODES = [hr.m_jnz, hr.m_jz, hr.m_jae, hr.m_jb, hr.m_ja, hr.m_jbe, hr.m_jg, hr.m_jge, hr.m_jl,
                            hr.m_jle]
@@ -338,12 +339,13 @@ def UnFlaInfo(mba):
         print("MopTracker block:{0}".format(dispatcher_father_serial))
         father_histories = father_tracker.search_backward(dispatcher_father_block, None,[dispatch_block.serial])
         if len(father_histories) > 1:
+            nb_duplication, nb_change = duplicate_histories(father_histories)
             print("father_block:{0} is  multiple branches".format(dispatcher_father_serial))
-            for history in father_histories:
-                if history.is_resolved() is True:
-                    history.print_info()
-                    target_blk = unflaSwitch.get_real_blk(history._current_environment.mop_define)
-                    print("target_blk:",target_blk)
+            # for history in father_histories:
+            #     if history.is_resolved() is True:
+            #         history.print_info()
+                    # target_blk = unflaSwitch.get_real_blk(history._current_environment.mop_define)
+                    # print("target_blk:",target_blk)
         else:
             if len(father_histories) == 1:
                 if father_histories[0].is_resolved() is True:
