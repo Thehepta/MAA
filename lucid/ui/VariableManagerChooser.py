@@ -26,55 +26,6 @@ def str_to_num(s: str, default=None):
         return default
 
 
-class MopResultWrapper:
-    """
-    专门解决 mop_t 不可哈希问题的返回结果包装类。
-    """
-
-    def __init__(self, variables_list, mop_mapping):
-        self.data = {}
-        for name, value, numeral, size in variables_list:
-            if value == "None":
-                continue
-            try:
-                valueNum = str_to_num(value)
-                mop_obj = mop_mapping.get(name)
-                self.data[name] = {
-                    "mop": mop_obj,  # 这里存的是货真价实的 mop_t 对象（或者是 None）
-                    "value": valueNum  # 用户输入的值
-                }
-            except (ValueError, TypeError, AttributeError):
-                continue
-
-    def items(self):
-        """
-        下游神器：像字典一样遍历，直接返回 (mop_t_对象, 字符串值)
-        如果该变量是用户手动新增的（没有原始mop），则第一个元素是它的名字字符串
-        """
-        for name, info in self.data.items():
-            if info["mop"] is not None:
-                yield info["mop"], info["value"]
-            else:
-                yield name, info["value"]
-
-    def get_value_by_name(self, name):
-        """支持通过名字快捷查询用户输入的值"""
-        if name in self.data:
-            return self.data[name]["value"]
-        return None
-
-    def __str__(self):
-        lines = []
-        for name, info in self.data.items():
-            mop = info["mop"]
-            val = info["value"]
-            if mop is not None:
-                lines.append(f"{name} -> MOP({mop}) = {val}")
-            else:
-                lines.append(f"{name} -> [no mop] = {val}")
-        return "\n".join(lines)
-
-
 class PureModalPatchChooser(QtWidgets.QDialog):
     """
     基于 PySide6 QDialog 的变量编辑器，替代 IDA Choose。
@@ -93,48 +44,58 @@ class PureModalPatchChooser(QtWidgets.QDialog):
     COL_SIZE = 3
 
     def __init__(self, title, top_inputs_list, parent=None):
+        """
+        @param top_inputs_list: list[MopExprId] - 从 get_block_top_level_inputs 返回的表达式列表
+        """
         super().__init__(parent)
         self.setWindowTitle(title)
 
-        self.mop_mapping = {}
-        self._raw_rows = []  # [[name, value, base, size], ...]
+        # 变量名 -> MopExprId 的映射（去重）
+        self.name_to_expr = {}
 
-        # ---- 构建 mop_mapping ----
-        for op in top_inputs_list:
-            clean_name = get_mop_name(op)
-            base_name = clean_name
-            counter = 1
-            while clean_name in self.mop_mapping:
-                clean_name = f"{base_name}_{counter}"
-                counter += 1
-            self.mop_mapping[clean_name] = op
-            self._raw_rows.append([clean_name, "None", "16", str(op.size)])
+        # 去重：同名变量只保留第一个
+        for mop_expr in top_inputs_list:
+            clean_name = mop_expr.name
+            if clean_name in self.name_to_expr:
+                continue  # 跳过重复
+            self.name_to_expr[clean_name] = mop_expr
 
         # ---- 表格 ----
-        self.table = QtWidgets.QTableWidget(len(self._raw_rows), 4, self)
+        self.table = QtWidgets.QTableWidget(len(self.name_to_expr), 4, self)
         self.table.setHorizontalHeaderLabels(["变量名称", "当前值/修补值", "进制", "宽度"])
-        # 所有列按内容自适应宽度，消除水平滚动条
         self.table.horizontalHeader().setSectionResizeMode(
             QtWidgets.QHeaderView.ResizeMode.ResizeToContents
         )
-        # 最后一列 Stretch 填满剩余宽度
         self.table.horizontalHeader().setStretchLastSection(True)
         self.table.setSelectionBehavior(QtWidgets.QAbstractItemView.SelectionBehavior.SelectRows)
         self.table.setEditTriggers(QtWidgets.QAbstractItemView.EditTrigger.NoEditTriggers)
         self.table.cellDoubleClicked.connect(self._on_cell_double_clicked)
-
-        # 禁用滚动条 —— 窗口高度会自适应行数
         self.table.setVerticalScrollBarPolicy(QtCore.Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         self.table.setHorizontalScrollBarPolicy(QtCore.Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
 
         # 填充数据
-        for row, data in enumerate(self._raw_rows):
-            for col, val in enumerate(data):
-                item = QtWidgets.QTableWidgetItem(str(val))
-                item.setTextAlignment(QtCore.Qt.AlignmentFlag.AlignCenter)
-                self.table.setItem(row, col, item)
+        for row, (name, mop_expr) in enumerate(self.name_to_expr.items()):
+            # 名称
+            name_item = QtWidgets.QTableWidgetItem(name)
+            name_item.setTextAlignment(QtCore.Qt.AlignmentFlag.AlignCenter)
+            self.table.setItem(row, self.COL_NAME, name_item)
 
-        # ---- 按钮：执行 / 取消 ----
+            # 值
+            val_item = QtWidgets.QTableWidgetItem("None")
+            val_item.setTextAlignment(QtCore.Qt.AlignmentFlag.AlignCenter)
+            self.table.setItem(row, self.COL_VALUE, val_item)
+
+            # 进制
+            base_item = QtWidgets.QTableWidgetItem("16")
+            base_item.setTextAlignment(QtCore.Qt.AlignmentFlag.AlignCenter)
+            self.table.setItem(row, self.COL_BASE, base_item)
+
+            # 宽度
+            size_item = QtWidgets.QTableWidgetItem(str(mop_expr.size))
+            size_item.setTextAlignment(QtCore.Qt.AlignmentFlag.AlignCenter)
+            self.table.setItem(row, self.COL_SIZE, size_item)
+
+        # ---- 按钮 ----
         btn_exec = QtWidgets.QPushButton("执行")
         btn_cancel = QtWidgets.QPushButton("取消")
         btn_box = QtWidgets.QDialogButtonBox()
@@ -147,9 +108,7 @@ class PureModalPatchChooser(QtWidgets.QDialog):
         layout = QtWidgets.QVBoxLayout(self)
         layout.addWidget(self.table)
         layout.addWidget(btn_box)
-        self.setLayout(layout)
 
-        # ---- 自适应窗口大小：根据行数计算高度 ----
         self._adjust_size()
 
     def _adjust_size(self):
@@ -157,49 +116,42 @@ class PureModalPatchChooser(QtWidgets.QDialog):
         self.table.resizeColumnsToContents()
         self.table.resizeRowsToContents()
 
-        # 计算表格理想高度
         header_h = self.table.horizontalHeader().height()
         rows_h = sum(self.table.rowHeight(r) for r in range(self.table.rowCount()))
-        table_ideal_h = header_h + rows_h + 4  # 4px 容差
+        table_h = header_h + rows_h + 4
 
-        # 按钮 + 布局边距
         btn_h = 40
         margins = self.layout().contentsMargins()
         spacing = self.layout().spacing()
         extra = margins.top() + margins.bottom() + spacing + btn_h + 8
 
-        ideal_h = table_ideal_h + extra
-        # 限高：不超过屏幕 80%
+        ideal_h = table_h + extra
         screen_h = QtWidgets.QApplication.primaryScreen().availableGeometry().height()
         max_h = int(screen_h * 0.8)
-        final_h = min(ideal_h, max_h)
 
-        self.setFixedHeight(final_h)
+        self.setFixedHeight(min(ideal_h, max_h))
         self.setMinimumWidth(480)
         self.setMaximumHeight(max_h)
 
-    # ------------------------------------------------------------------
-    # 拦截 Esc：不关闭窗口，仅清除表格选中
-    # ------------------------------------------------------------------
     def keyPressEvent(self, event):
+        """拦截 Esc：不关闭窗口，仅清除表格选中"""
         if event.key() == QtCore.Qt.Key.Key_Escape:
             self.table.clearSelection()
             return
         super().keyPressEvent(event)
 
-    # ------------------------------------------------------------------
-    # 双击编辑值
-    # ------------------------------------------------------------------
     def _on_cell_double_clicked(self, row, col):
+        """双击编辑值"""
         if col != self.COL_VALUE:
             return
-        var_name_item = self.table.item(row, self.COL_NAME)
+
+        name_item = self.table.item(row, self.COL_NAME)
         value_item = self.table.item(row, self.COL_VALUE)
         base_item = self.table.item(row, self.COL_BASE)
-        if not (var_name_item and value_item and base_item):
+        if not (name_item and value_item and base_item):
             return
 
-        var_name = var_name_item.text()
+        var_name = name_item.text()
         current_val = value_item.text()
         current_base = int(base_item.text())
 
@@ -210,31 +162,44 @@ class PureModalPatchChooser(QtWidgets.QDialog):
             text=str(current_val),
         )
         if not ok:
-            # 用户按了取消 / Esc，仅关闭输入框，主窗口不动
             return
-        new_val_stripped = new_val.strip()
-        if new_val_stripped == "None":
+
+        new_val = new_val.strip()
+        if new_val.upper() == "NONE":
             value_item.setText("None")
             return
-        try:
-            actual_int = str_to_num(new_val_stripped)
-            value_item.setText(hex(actual_int))
-        except ValueError:
+
+        num = str_to_num(new_val)
+        if num is None:
             QtWidgets.QMessageBox.warning(
                 self,
                 "输入错误",
-                f"值 '{new_val_stripped}' 无法按 {current_base} 进制解析！",
+                f"值 '{new_val}' 无法按 {current_base} 进制解析！",
             )
+            return
 
-    # ------------------------------------------------------------------
-    # 返回结果，API 与旧版保持一致
-    # ------------------------------------------------------------------
-    def get_results(self):
-        variables_list = []
+        value_item.setText(hex(num))
+
+    def get_results(self) -> dict:
+        """
+        返回 {mop_t: int_value} 字典。
+        只包含用户设置了值的变量（不是 "None"）。
+        """
+        result = {}
         for row in range(self.table.rowCount()):
             name = self.table.item(row, self.COL_NAME).text()
-            value = self.table.item(row, self.COL_VALUE).text()
-            numeral = self.table.item(row, self.COL_BASE).text()
-            size = self.table.item(row, self.COL_SIZE).text()
-            variables_list.append([name, value, numeral, size])
-        return MopResultWrapper(variables_list, self.mop_mapping)
+            value_str = self.table.item(row, self.COL_VALUE).text()
+
+            if value_str == "None":
+                continue
+
+            mop_expr = self.name_to_expr.get(name)
+            if mop_expr is None:
+                continue
+
+            num = str_to_num(value_str)
+            if num is not None:
+                result[mop_expr] = num  # 直接用 mop_expr.mop
+
+        return result
+

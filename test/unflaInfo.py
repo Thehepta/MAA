@@ -118,7 +118,7 @@ class ollvmflaCase(object):
     def __init__(self,paths,mba):
         self.path_conds = []
         self.dst_blk =None
-        self.depends = SymMopMap()
+        self.depends = []
         self.paths = paths
         self.mba = mba
 
@@ -132,45 +132,29 @@ class ollvmflaCase(object):
                 break
             blk = self.mba.get_mblock(item)
             microcode_interpreter.eval_blk(blk, microcode_environment)
-            # get_branch_condition(microcode_environment.irdst,ExprId())
-            # print(microcode_environment.irdst)
-            target_expr = ExprInt(self.paths[idx + 1], 4)
+            next_blk = self.paths[idx + 1]
+            target_expr = ExprInt(next_blk, 4)
             jump_cond = get_branch_condition(microcode_environment.irdst, target_expr)
-            self.updateStatus(jump_cond, self.paths[idx + 1])
-            # print(jump_cond)
+            self.path_conds.append(jump_cond)
+            self.dst_blk = next_blk
+            exprs = list(walk_expr_iter(microcode_environment.irdst))
+            for expr in exprs:
+                if expr.is_mopid():
+                    self.depends.append(expr)
 
-            nodes = list(walk_expr_iter(microcode_environment.irdst))
-            for node in nodes:
-                if node.is_id():
-                    mop = microcode_environment.mop_undefind[node]
-                    self.add_depend_mop(mop,node)
 
-    def updateStatus(self, path_cond:Expr, blk:int):
-        self.path_conds.append(path_cond)
-        self.dst_blk = blk
-
-    def add_depend_mop(self,depend_mop,depend_expr):
-        self.depends[depend_mop] = depend_expr
-
-    def is_satisfy(self, mop_def_list: SymMopMap):
+    def is_satisfy(self, mop_def_list):
 
         replacement_map = {}
-        for mop_used, mop_expr_value in mop_def_list.items():
-            mop_expr = self.depends[mop_used]
-            # 假设 mop_expr 是 ExprId，用 mop_expr_value 替换
-            replacement_map[mop_expr] = mop_expr_value
-            # 或者如果是按名字替换：
-            # if mop_expr.is_id():
-            #     replacement_map[mop_expr.name] = mop_expr_value
-        # 替换并化简所有路径约束
-        self.tmp_path_conds = []
+        for dep_mop in self.depends:
+            value_expr = mop_def_list[dep_mop]
+            replacement_map[dep_mop] = value_expr
+
         for cond in self.path_conds:
             # 替换
             replaced = cond.replace(replacement_map)
             # 化简
             simplified = simplify(replaced)
-            self.tmp_path_conds.append(simplified)
-
             # 检查是否为 True (值为 1)
             if not simplified.is_int() or simplified.as_int() != 1:
                 return False  # 有约束不满足
@@ -186,10 +170,10 @@ class ollvmflaSwitch(object):
 
     def add_case(self,case:ollvmflaCase):
         self.cases.append(case)
-        for mop_used,expr in case.depends.items():
-            append_mop_if_not_in_list(mop_used, self.switch_status)
+        for mop_expr in case.depends:
+            append_mop_if_not_in_list(mop_expr.get_mop(), self.switch_status)
 
-    def get_real_blk(self,mop_def_list:SymMopMap):
+    def get_real_blk(self,mop_def_list):
         for case in self.cases:
             if case.is_satisfy(mop_def_list) is True:
                 return case.dst_blk

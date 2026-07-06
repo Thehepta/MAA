@@ -3,7 +3,7 @@ import logging
 from typing import List
 
 from d810.hexrays_helpers import OPCODES_INFO, MATURITY_TO_STRING_DICT, STRING_TO_MATURITY_DICT, MOP_TYPE_TO_STRING_DICT
-from ida_hexrays import minsn_t, mop_t, vd_printer_t, mbl_array_t, mop_fn, mop_n, mop_S, mop_v, mop_r, mop_l
+from ida_hexrays import minsn_t, mop_t, vd_printer_t, mbl_array_t, mop_fn, mop_n, mop_S, mop_v, mop_r, mop_l, mop_f
 
 logger = logging.getLogger('D810.helper')
 
@@ -60,6 +60,8 @@ def get_mop_content(mop):
     elif mop.t == mop_r:
         return mop.r
     elif mop.t == mop_l:
+        return mop.l
+    elif mop.t == mop_f:
         return mop.l
     else:
         return "unsport mop type"

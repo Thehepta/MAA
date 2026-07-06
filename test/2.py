@@ -301,24 +301,24 @@ class UnflattenerFakeJump():
 
 
             # print("tmp_mop_searched_values:", hex(tmp_mop_searched_values[0]))
-        target_blk, disp_ins = dispatcher_info.emulate_dispatcher_with_father_history(dispatcher_father_histories[0])
-        if target_blk is not None:
-            print("Unflattening graph: Making {0} goto {1}"
-                  .format(dispatcher_father.serial, target_blk.serial))
-            # ins_to_copy = [ins for ins in disp_ins if ((ins is not None) and (ins.opcode not in CONTROL_FLOW_OPCODES))]
-            #
-            # if len(ins_to_copy) > 0:
-            #     # 这个脚本不会走这个,别的脚本会有完整的
-            #     print("Instruction copied: {0}: {1}"
-            #           .format(len(ins_to_copy),
-            #                   ", ".join([format_minsn_t(ins_copied) for ins_copied in ins_to_copy])))
-            #     dispatcher_side_effect_blk = create_block(self.mba.get_mblock(self.mba.qty - 2), ins_to_copy,
-            #                                               is_0_way=(target_blk.type == hr.BLT_0WAY))
-            #     change_1way_block_successor(dispatcher_father, dispatcher_side_effect_blk.serial)
-            #     change_1way_block_successor(dispatcher_side_effect_blk, target_blk.serial)
-            # else:
-            change_1way_block_successor(dispatcher_father, target_blk.serial)
-            return 2
+        # target_blk, disp_ins = dispatcher_info.emulate_dispatcher_with_father_history(dispatcher_father_histories[0])
+        # if target_blk is not None:
+        #     print("Unflattening graph: Making {0} goto {1}"
+        #           .format(dispatcher_father.serial, target_blk.serial))
+        #     # ins_to_copy = [ins for ins in disp_ins if ((ins is not None) and (ins.opcode not in CONTROL_FLOW_OPCODES))]
+        #     #
+        #     # if len(ins_to_copy) > 0:
+        #     #     # 这个脚本不会走这个,别的脚本会有完整的
+        #     #     print("Instruction copied: {0}: {1}"
+        #     #           .format(len(ins_to_copy),
+        #     #                   ", ".join([format_minsn_t(ins_copied) for ins_copied in ins_to_copy])))
+        #     #     dispatcher_side_effect_blk = create_block(self.mba.get_mblock(self.mba.qty - 2), ins_to_copy,
+        #     #                                               is_0_way=(target_blk.type == hr.BLT_0WAY))
+        #     #     change_1way_block_successor(dispatcher_father, dispatcher_side_effect_blk.serial)
+        #     #     change_1way_block_successor(dispatcher_side_effect_blk, target_blk.serial)
+        #     # else:
+        #     change_1way_block_successor(dispatcher_father, target_blk.serial)
+        #     return 2
 
     def get_dispatcher_father_histories(self, dispatcher_father: mblock_t,
                                         dispatcher_info: GenericDispatcherInfo) -> List[SymbolicMopHistory]:

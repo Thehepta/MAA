@@ -47,9 +47,6 @@ class SymbolicMicroCodeInterpreter:
     that propagate through operations and can potentially simplify to concrete values.
     """
 
-    def __init__(self, global_environment: Optional[SymbolicMicroCodeEnvironment] = None):
-        self.global_environment = SymbolicMicroCodeEnvironment() if global_environment is None else global_environment
-
     def _eval_instruction_and_update_environment(self, blk: Optional[mblock_t],ins: Optional[minsn_t],
                                                   environment: SymbolicMicroCodeEnvironment) -> Optional[Expr]:
         res = self._eval_instruction(blk,ins, environment)
@@ -439,7 +436,7 @@ class SymbolicMicroCodeInterpreter:
         return ExprId("mop_{}".format(format_mop_t(mop)), size)
 
     def eval_instruction(self, blk: mblock_t, ins: minsn_t,
-                         environment: Optional[SymbolicMicroCodeEnvironment] = None,
+                         environment: Optional[SymbolicMicroCodeEnvironment] ,
                          raise_exception: bool = False) -> Optional[Expr|None]:
         """
         Evaluate a single instruction symbolically.
@@ -447,7 +444,8 @@ class SymbolicMicroCodeInterpreter:
         """
         try:
             if environment is None:
-                environment = self.global_environment
+                interpreter.info("environment is None,Cannot eval_instruction")
+                return None
             interpreter.info("Evaluating symbolically: '{0}'".format(format_minsn_t(ins)))
             if ins is None:
                 return None

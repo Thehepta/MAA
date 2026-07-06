@@ -178,12 +178,12 @@ def UnFla(mba, dispatch_block):
         # 将 father_histories[0] 中 变量的对应的值，设置到仿真执行环境中，当从分发器开始执行的时候，其中的状态寄存器的值，已经变成了当前这个前驱执行完了以后的值。
         # 通过dispatch_info这个，从分发器开始一个块一个块的仿真执行，执行到 dispatcher_exit_blocks 会停止
         # 返回 用 father_histories 的状态变量，执行到的，真实代码的起始位置，以及指令，用于patch
-        target_blk, disp_ins = dispatch_info.emulate_dispatcher_with_father_history(father_histories[0])
-        if target_blk is not None:
-            print("Unflattening graph: Making {0} goto {1}"
-                  .format(dispatcher_father_serial, target_blk.serial))
-            # 直接patch
-            change_1way_block_successor(dispatcher_father_block, target_blk.serial)
+        # target_blk, disp_ins = dispatch_info.emulate_dispatcher_with_father_history(father_histories[0])
+        # if target_blk is not None:
+        #     print("Unflattening graph: Making {0} goto {1}"
+        #           .format(dispatcher_father_serial, target_blk.serial))
+        #     # 直接patch
+        #     change_1way_block_successor(dispatcher_father_block, target_blk.serial)
 
     return 0
 

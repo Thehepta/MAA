@@ -9,7 +9,7 @@ from __future__ import annotations
 import logging
 from typing import List, Optional
 
-from d810.SymMopMap import SymMopMap
+from d810.hexrays_helpers import equal_mops_ignore_size
 from d810.utils import get_mop_name
 from ida_hexrays import (
     mblock_t, mop_t,
@@ -26,6 +26,51 @@ from d810.errors import UnsupportedMopException
 symb_log = logging.getLogger('D810.env')
 
 
+class MopExprId(Expr):
+    """Symbolic identifier (register, stack variable, global variable)."""
+
+    __slots__ = ('_name','_type','_mop')
+
+    def __init__(self, mop):
+        super().__init__(mop.size)
+        self._name = get_mop_name(mop)
+        self._type = mop.t
+        self._mop = mop
+
+    @property
+    def name(self) -> str:
+        return self._name
+
+    def get_mop(self):
+        return self._mop
+
+    def get_mop_t(self):
+        return self._type
+
+    def is_mopid(self) -> bool:
+        return True
+
+    def _eq(self, other: MopExprId) -> bool:
+        if not isinstance(other, MopExprId):
+            return False
+        return equal_mops_ignore_size(self._mop, other._mop)
+
+    def __hash__(self):
+        return hash(('MopExprId', self._name,self._type, self._size))
+
+    def __repr__(self):
+        return "{}:{:d}".format(self._name, self._size)
+
+    def copy(self) -> MopExprId:
+        return MopExprId(self._mop)
+
+    def replace(self, mapping: dict) -> Expr:
+        """Replace this identifier if it's in the mapping."""
+        # Check exact match first
+        if self in mapping:
+            return mapping[self]
+        return self
+
 
 
 class SymbolicMicroCodeEnvironment:
@@ -38,9 +83,9 @@ class SymbolicMicroCodeEnvironment:
     """
 
     def __init__(self):
-        self.mop_define = SymMopMap()
-        self.mop_undefind = SymMopMap()
-
+        self.mop_define = {}
+        self.mop_undefind = []
+        self.mop_unsupport = {}
         # 符号化跳转目标，类似 Miasm 的 IRDst（per-block：当前块的出口）
         # 具体跳转: ExprInt(serial, 4)
         # 条件跳转: ExprCond(cond, ExprInt(target), ExprInt(fallthrough))
@@ -77,10 +122,17 @@ class SymbolicMicroCodeEnvironment:
         else:
             self.path_conditions.append(simplify(ExprOp('lnot', [cond], 1)))
 
+    def defineExpr(self, mopExpr: MopExprId, value: Expr):
+        self.mop_define[mopExpr] = value
+
     def define(self, mop: mop_t, value: Expr):
         """Define a mop's symbolic value."""
-        if mop.t in (mop_r, mop_S, mop_v,mop_f):
-            self.mop_define[mop] = value
+        if mop.t in (mop_r, mop_S, mop_v):
+            mop_id = MopExprId(mop)
+            self.mop_define[mop_id] = value
+        elif mop.t == mop_f:
+            mop_id = ExprId(mop.dstr(),mop.size)
+            self.mop_unsupport[mop_id] = value
         else:
             raise UnsupportedMopException("Defining unsupported mop type '{0}': '{1}'".format(
                 mop_type_to_string(mop.t), format_mop_t(mop)))
@@ -91,8 +143,9 @@ class SymbolicMicroCodeEnvironment:
         If not found and create_symbol is True, returns a fresh symbolic variable.
         """
         result = None
-        if mop.t in (mop_r, mop_S, mop_v, mop_f):
-            result = self.mop_define[mop]
+        if mop.t in (mop_r, mop_S, mop_v):
+            mop_id = MopExprId(mop)
+            result = self.mop_define.get(mop_id)
         else:
             raise UnsupportedMopException("lookup unsupported mop type '{0}': '{1}'".format(
                 mop_type_to_string(mop.t), format_mop_t(mop)))
@@ -102,15 +155,34 @@ class SymbolicMicroCodeEnvironment:
 
         # Not found: create a fresh symbolic variable
         if create_symbol:
-            size = mop.size if mop.size > 0 else 8
-            name = get_mop_name(mop)
-            symbol = ExprId(name, size)
-            self.mop_undefind[mop] = symbol
-            symb_log.debug("Created symbolic variable for undefined mop: {0}".format(name))
-            return symbol
+            mop_id = MopExprId(mop)
+            self.mop_undefind.append(mop_id)
+            symb_log.debug("Created symbolic variable for undefined mop: {0}".format(mop_id.name))
+            return mop_id
 
         return None
 
+    def Mop2Expr(self,mop):
+
+        if mop.t in (mop_r, mop_S, mop_v):
+            return MopExprId(mop)
+        else:
+            return None
+
+    def Expr2Mop(self,expr):
+
+        mop = mop_t()
+        if expr.t == mop_S:
+            mop.make_stkvar(self.mba, expr.s.off)
+            return mop
+        elif expr.t == mop_v:
+            mop.make_gvar(expr.g)
+            return mop
+        elif expr.t == mop_r:
+            mop.make_reg(expr.r)
+            return mop
+        else:
+            return None
 
     def dump(self,logger=None):
         """
@@ -132,14 +204,12 @@ class SymbolicMicroCodeEnvironment:
 
         if len(self.mop_define) > 0:
             log.debug("[Registers]")
-            for mop, value in self.mop_define.items():
-                name = get_mop_name(mop)
-                log.debug("  {0} = {1}".format(name, value))
+            for mopExpr, value in self.mop_define.items():
+                log.debug("  {0} = {1}".format(mopExpr.name, value))
         if len(self.mop_undefind) > 0:
             log.debug("[Undefine]")
-            for mop, value in self.mop_undefind.items():
-                name = get_mop_name(mop)
-                log.debug("  mop : {0} -> ExprId : {1}".format(name, value))
+            for mopExpr in self.mop_undefind:
+                log.debug("  mop : {0}".format(mopExpr.name))
 
         total = len(self.mop_define)
         log.debug("-" * 60)

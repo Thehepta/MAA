@@ -111,10 +111,10 @@ def get_mop_name(mop: mop_t) -> str:
         return name
     elif mop.t == mop_S:
         # Stack variable: use stack offset
-        return "var_{:x}".format(mop.s.off & 0xFFFFFFFF)
+        return "Var_{:x}".format(mop.s.off & 0xFFFFFFFF)
     elif mop.t == mop_v:
         # Global variable: use address
-        return "gvar_{:x}".format(mop.g)
+        return "Gvar_{:x}".format(mop.g)
     else:
         # Fallback: use display string
         return format_mop_t(mop)

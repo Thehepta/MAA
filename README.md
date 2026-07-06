@@ -2,9 +2,14 @@
 
 IDA microcode analysis assistant
 
-
+```
+如果安装了需要先卸载
 hcli plugin uninstall MMA
+
+安装
 hcli plugin install  https://github.com/Thehepta/MAA
+```
+
 
 
 

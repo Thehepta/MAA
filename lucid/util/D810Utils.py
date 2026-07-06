@@ -240,18 +240,27 @@ def get_block_top_level_inputs_for_mop(mblock) -> list:
     return top_inputs
 
 
-def get_block_top_level_inputs(mblock) -> list:
-    entry_block = GenericDispatcherBlockInfo(mblock)
-    entry_block.parse()
-    return entry_block.use_before_def_list
-
-
-def eval_current_blk(current_block, environment_values):
+def get_block_top_level_inputs(current_block) -> list:
     microcode_interpreter = SymbolicMicroCodeInterpreter()
     microcode_environment = SymbolicMicroCodeEnvironment()
-    for mop, valueNum in environment_values.items():
-        microcode_environment.define(mop, ExprInt(valueNum, mop.size))
     microcode_interpreter.eval_blk(current_block,microcode_environment)
+    # microcode_environment.dump(log.console_logger)
+    return microcode_environment.mop_undefind
+# def get_block_top_level_inputs(mblock) -> list:
+#     entry_block = GenericDispatcherBlockInfo(mblock)
+#     entry_block.parse()
+#     return entry_block.use_before_def_list
+
+
+def eval_current_blk(current_block, environment_values: dict):
+    """
+    @param environment_values: {mop_t: int_value} 字典
+    """
+    microcode_interpreter = SymbolicMicroCodeInterpreter()
+    microcode_environment = SymbolicMicroCodeEnvironment()
+    for mopExpr, value_int in environment_values.items():
+        microcode_environment.defineExpr(mopExpr, ExprInt(value_int, mopExpr.size))
+    microcode_interpreter.eval_blk(current_block, microcode_environment)
     microcode_environment.dump(log.console_logger)
 
 

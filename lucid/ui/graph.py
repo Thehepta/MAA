@@ -155,12 +155,12 @@ class dominance_graphviewer_t(microcode_graphviewer_t):
         elif cmd_id == self.show_UnFlatten_log_id:
             UnFlaInfo(self._mba,self.select_block)
         elif cmd_id == self.eval_current_blk_id:
-            title_msg = "eval设置变量 (双击改值 / 不支持删除 / 确定即可开始执行)"
-            my_initial_variables = get_block_top_level_inputs(self.select_block)
-            dialog = PureModalPatchChooser(title_msg, my_initial_variables)
+            title_msg = "eval设置变量 (双击改值 / 确定即可开始执行)"
+            mop_undefind = get_block_top_level_inputs(self.select_block)
+            dialog = PureModalPatchChooser(title_msg, mop_undefind)
             if QtWidgets.QDialog.DialogCode.Accepted == dialog.exec():
-                environment_value = dialog.get_results()
-                eval_current_blk(self.select_block,environment_value)
+                environment_values = dialog.get_results()  # 现在直接返回 {mop_t: int}
+                eval_current_blk(self.select_block, environment_values)
             else:
                 print("dialog cancelled")
         elif cmd_id == self.save_graphviz_id:

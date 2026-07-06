@@ -85,6 +85,10 @@ class Expr:
         """Return True if this expression is an operation."""
         return False
 
+    def is_mopid(self) -> bool:
+        """Return True if this expression is an operation."""
+        return False
+
     def is_mem(self) -> bool:
         """Return True if this expression is a memory access."""
         return False

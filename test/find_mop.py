@@ -52,13 +52,13 @@ def start():
     hf = hr.hexrays_failure_t()
     ml = hr.mlist_t()
     mba = hr.gen_microcode(mbr, hf, ml, hr.DECOMP_WARNINGS, mmat)
-    block = mba.get_mblock(5)
+    block = mba.get_mblock(18)
 
-    ins = block.head
+    ins = block.tail
     print("op:{0}     type:{1} content:{2}:".format(opcode_to_string(ins.opcode),type(ins.opcode),ins.opcode))
     print("insn.l:{0} type:{1} content:{2}:".format(ins.l.dstr(),mop_type_to_string(ins.l.t),get_mop_content(ins.l)))
-    print("insn.l:{0} type:{1} content:{2}:".format(ins.r.dstr(),mop_type_to_string(ins.r.t),get_mop_content(ins.r)))
-    print("insn.l:{0} type:{1} content:{2}:".format(ins.d.dstr(),mop_type_to_string(ins.d.t),get_mop_content(ins.d)))
+    print("insn.r:{0} type:{1} content:{2}:".format(ins.r.dstr(),mop_type_to_string(ins.r.t),get_mop_content(ins.r)))
+    print("insn.d:{0} type:{1} content:{2}:".format(ins.d.dstr(),mop_type_to_string(ins.d.t),get_mop_content(ins.d)))
 
     print("found:", ins.dstr())
     print("found:", ins.l.dstr())
