@@ -11,11 +11,10 @@ from d810.Environment import SymbolicMicroCodeEnvironment
 from d810.Expr import walk_expr_iter, ExprId, ExprInt, Expr
 from d810.ExprSimplifier import get_branch_condition,simplify
 from d810.Interpreter import SymbolicMicroCodeInterpreter
-from d810.SymMopMap import SymMopMap
 from d810.generic import GenericDispatcherInfo
 from d810.generic import GenericDispatcherBlockInfo
-from d810.hexrays_formatters import format_mop_t, format_minsn_t
-from d810.hexrays_helpers import append_mop_if_not_in_list, extract_num_mop, CONTROL_FLOW_OPCODES
+from d810.hexrays_formatters import format_mop_t, format_minsn_t, mop_type_to_string
+from d810.hexrays_helpers import append_mop_if_not_in_list, extract_num_mop, CONTROL_FLOW_OPCODES, get_mop_index
 from d810.tracker import duplicate_histories
 from d810.utils import get_mop_name
 
@@ -202,8 +201,6 @@ class D810OllvmDispatcherInfo(GenericDispatcherInfo):
         for used_mop in self.entry_block.use_list:
             append_mop_if_not_in_list(used_mop, self.entry_block.assume_def_list)
         self.dispatcher_internal_blocks.append(self.entry_block)
-        num_mop, self.mop_compared = self._get_comparison_info(self.entry_block.blk)
-        self.comparison_values.append(num_mop.nnn.value)
         self._explore_children(self.entry_block)
         dispatcher_blk_with_external_father = self._get_dispatcher_blocks_with_external_father()
         # TODO: I think this can be wrong because we are too permissive in detection of dispatcher blocks
@@ -235,7 +232,13 @@ class D810OllvmDispatcherInfo(GenericDispatcherInfo):
             return None, None
         return num_mop, mop_compared
 
+
+
     def is_part_of_dispatcher(self, block_info: GenericDispatcherBlockInfo) -> bool:
+        print("is_part_of_dispatcher:",block_info.blk.serial)
+        for used_before_def_mop in block_info.use_before_def_list:
+            print("used_before_def_mop:",mop_type_to_string(used_before_def_mop.t), used_before_def_mop.dstr())
+
         is_ok = block_info.does_only_need(block_info.father.assume_def_list)
         if not is_ok:
             return False

@@ -1,3 +1,4 @@
+from d810.Environment import SymbolicMicroCodeEnvironment
 from ida_hexrays import mop_z
 
 
@@ -66,3 +67,19 @@ class SymbolMngr(object):
             # self.symbols_mem.write(dst.ptr, src)
         else:
             raise TypeError("Bad destination expr")
+
+
+
+class SymbolExecHistory:
+
+    def __init__(self):
+        self.history_blk = []
+
+        self._initial_environment = SymbolicMicroCodeEnvironment()
+
+    def get_copy(self) -> "SymbolExecHistory":
+        new_history = SymbolExecHistory()
+        new_history.history = [x for x in self.history_blk]
+        new_history._initial_environment = self._initial_environment.get_copy()
+
+        return new_history

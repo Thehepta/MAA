@@ -31,15 +31,17 @@ FLATTENING_JUMP_OPCODES = [hr.m_jnz, hr.m_jz, hr.m_jae, hr.m_jb, hr.m_ja, hr.m_j
 utils.enable_console_log(tracker.logger)
 
 def UnFlaInfo(mba):
-    # import pydevd_pycharm
-    # pydevd_pycharm.settrace('localhost', port=31235, stdoutToServer=True, stderrToServer=True)
+    import pydevd_pycharm
+    pydevd_pycharm.settrace('localhost', port=31235, stdoutToServer=True, stderrToServer=True)
     # print("dispatch_block serial:", hex(dispatch_block.serial))
     # blk_preset_list = [x for x in dispatch_block.predset]
     # print("dispatch_block father list:", blk_preset_list)
 
-    blk = mba.get_mblock(5)
-    environment_value = eval_current_blk(blk, {})
-    environment_value.dump(log.console_logger)
+    blk = mba.get_mblock(17)
+    microcode_interpreter = SymbolicMicroCodeInterpreter()
+    microcode_environment = SymbolicMicroCodeEnvironment()
+    microcode_interpreter.eval_blk(blk,microcode_environment)
+    microcode_environment.dump(log.console_logger)
 
 
 

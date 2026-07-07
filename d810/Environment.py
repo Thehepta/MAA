@@ -13,7 +13,7 @@ from d810.hexrays_helpers import equal_mops_ignore_size
 from d810.utils import get_mop_name
 from ida_hexrays import (
     mblock_t, mop_t,
-    mop_r, mop_S, mop_v, mop_f,
+    mop_r, mop_S, mop_v, mop_f, mop_a,
 )
 
 from d810.Expr import (
@@ -127,7 +127,7 @@ class SymbolicMicroCodeEnvironment:
 
     def define(self, mop: mop_t, value: Expr):
         """Define a mop's symbolic value."""
-        if mop.t in (mop_r, mop_S, mop_v):
+        if mop.t in (mop_r, mop_S, mop_v,mop_a):
             mop_id = MopExprId(mop)
             self.mop_define[mop_id] = value
         elif mop.t == mop_f:
@@ -143,7 +143,7 @@ class SymbolicMicroCodeEnvironment:
         If not found and create_symbol is True, returns a fresh symbolic variable.
         """
         result = None
-        if mop.t in (mop_r, mop_S, mop_v):
+        if mop.t in (mop_r, mop_S, mop_v, mop_a):
             mop_id = MopExprId(mop)
             result = self.mop_define.get(mop_id)
         else:

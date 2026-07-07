@@ -218,8 +218,8 @@ def UnFlaInfo(mba):
     for m in entry_block.use_list:
         print("use_list:",m.dstr())
 
-    for m in entry_block.def_list:
-        print("def_list:",m.dstr())
+    # for m in entry_block.def_list:
+    #     print("def_list:",m.dstr())
 
 # 将函数转变成 ida的mba，然后进行解混淆，并显示解混淆后的cfg
 def start():

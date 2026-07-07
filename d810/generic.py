@@ -17,9 +17,13 @@ class GenericDispatcherBlockInfo(object):
     def __init__(self, blk, father=None):
         self.blk = blk
         self.ins = []
+        # 这个块中所有使用的变量
         self.use_list = []
+        # 这个块中所有使用了,但是没有赋值的变量,一般是外部传入的变量
         self.use_before_def_list = []
+        # 这个块中所有赋值的变量
         self.def_list = []
+        # 假设定义,父块的assume_def_list 和 由当前块的def_list 组成 以及分发器的 use_list
         self.assume_def_list = []
         self.comparison_value = None
         self.compared_mop = None

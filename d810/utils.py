@@ -3,7 +3,7 @@ import logging
 
 from d810.hexrays_formatters import format_mop_t
 from d810.hexrays_helpers import MSB_TABLE
-from ida_hexrays import mop_t, mop_r, get_mreg_name, mop_S, mop_v
+from ida_hexrays import mop_t, mop_r, get_mreg_name, mop_S, mop_v, mop_a
 
 CTYPE_SIGNED_TABLE = {1: ctypes.c_int8, 2: ctypes.c_int16, 4: ctypes.c_int32, 8: ctypes.c_int64}
 CTYPE_UNSIGNED_TABLE = {1: ctypes.c_uint8, 2: ctypes.c_uint16, 4: ctypes.c_uint32, 8: ctypes.c_uint64}
@@ -105,16 +105,17 @@ def get_mop_name(mop: mop_t) -> str:
     Size handling is done at the expression level (via slice/extend).
     """
     if mop.t == mop_r:
-        # Register: use register number only (eax/rax/ax/al all share r=0)
         width = mop.size
         name = get_mreg_name(mop.r, width)
         return name
     elif mop.t == mop_S:
         # Stack variable: use stack offset
-        return "Var_{:x}".format(mop.s.off & 0xFFFFFFFF)
+        return mop.dstr()
     elif mop.t == mop_v:
         # Global variable: use address
         return "Gvar_{:x}".format(mop.g)
+    elif mop.t == mop_a:
+        return get_mop_name(mop.a)
     else:
         # Fallback: use display string
         return format_mop_t(mop)

@@ -334,6 +334,11 @@ class ExprOp(Expr):
     def __repr__(self):
         if len(self._args) == 1:
             return "{}({}):{:d}".format(self._op, self._args[0], self._size)
+        # 如果操作符是 call_ 开头，使用函数调用格式
+        if self._op.startswith("call_"):
+            args_str = ", ".join(str(a) for a in self._args)
+            return "{}({}):{:d}".format(self._op, args_str, self._size)
+        # 其他操作符使用中缀格式
         args_str = " {} ".format(self._op).join(str(a) for a in self._args)
         return "({}):{:d}".format(args_str, self._size)
 

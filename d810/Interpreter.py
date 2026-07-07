@@ -68,7 +68,7 @@ class SymbolicMicroCodeInterpreter:
             return call_helper_res
 
         if ins.opcode in (m_call, m_icall):
-            return self._eval_call(ins, environment)
+            return self._eval_call(blk,ins, environment)
 
         res_size = ins.d.size if ins.d.size > 0 else 8
 
@@ -308,28 +308,6 @@ class SymbolicMicroCodeInterpreter:
         environment.irdst = ExprInt(next_blk_serial, 4)
         return True
 
-    def _eval_call_helper(self , blk: mblock_t, ins: minsn_t, environment: SymbolicMicroCodeEnvironment) -> Optional[Expr]:
-        """Evaluate helper function calls symbolically."""
-        if ins.opcode != m_call or ins.l.t != mop_h:
-            return None
-        res_size = ins.d.size if ins.d.size > 0 else 8
-        helper_name = ins.l.helper
-        args_list = ins.d
-
-        interpreter.debug("Call helper for {0}".format(helper_name))
-        # if helper_name == "__ROR4__":
-        #     data_1 = self.eval(args_list.f.args[0], environment,blk)
-        #     data_2 = self.eval(args_list.f.args[1], environment,blk)
-        #     if data_1.is_int() and data_2.is_int():
-        #         result = ror(data_1.as_int(), data_2.as_int(), 8 * args_list.f.args[0].size)
-        #         return ExprInt(result & _size_mask(res_size), res_size)
-        #     return simplify(ExprOp('ror', [data_1, data_2], res_size))
-        # elif helper_name == "__readfsqword":
-        #     return ExprInt(0, res_size)
-
-        # Unknown helper: return symbolic
-        return ExprId("call_{}".format(helper_name), res_size)
-
     def _eval_load(self,cur_blk:mblock_t,ins: minsn_t, environment: SymbolicMicroCodeEnvironment) -> Optional[Expr]:
         """Evaluate memory load symbolically."""
         res_size = ins.d.size if ins.d.size > 0 else 8
@@ -375,13 +353,31 @@ class SymbolicMicroCodeInterpreter:
         # We don't track memory writes for now; return None (no result assigned to d)
         return None
 
-    def _eval_call(self, ins: minsn_t, environment: SymbolicMicroCodeEnvironment) -> Optional[Expr]:
+    def _eval_call(self,blk, ins: minsn_t, environment: SymbolicMicroCodeEnvironment) -> Optional[Expr]:
         """Evaluate call instruction symbolically."""
         res_size = ins.d.size if ins.d.size > 0 else 8
         # Return a symbolic value representing the call result
         call_target = format_mop_t(ins.l)
-        interpreter.debug("Symbolic call to: {0}".format(call_target))
-        return ExprId("call_{}".format(call_target), res_size)
+        args_list = []
+        for arg in ins.d.f.args:
+            data = self.eval(blk,arg, environment)
+            args_list.append(data)
+        return ExprOp("call_{}".format(call_target), args_list,res_size)
+
+    def _eval_call_helper(self , blk: mblock_t, ins: minsn_t, environment: SymbolicMicroCodeEnvironment) -> Optional[Expr]:
+        """Evaluate helper function calls symbolically."""
+        if ins.opcode != m_call or ins.l.t != mop_h:
+            return None
+        res_size = ins.d.size
+        helper_name = ins.l.helper
+        args_list = []
+
+        for arg in ins.d.f.args:
+            data = self.eval(blk,arg, environment)
+            args_list.append(data)
+        interpreter.debug("Call helper for {0}".format(helper_name))
+        return ExprOp("call_{}".format(helper_name), args_list, res_size)
+
 
     def eval(self, cur_blk:Optional[mblock_t] ,mop: mop_t, environment: SymbolicMicroCodeEnvironment) -> Expr:
         """
@@ -406,27 +402,23 @@ class SymbolicMicroCodeInterpreter:
                 return ExprId("sub_insn_{}".format(format_mop_t(mop)), size)
             return result
         elif mop.t == mop_a:
-            if mop.a.t == mop_v:
-                return ExprInt(mop.a.g, size)
-            elif mop.a.t == mop_S:
-                return ExprInt(mop.a.s.off & _size_mask(size), size)
-            # Unknown address type - return symbolic
-            return ExprId("addr_{}".format(format_mop_t(mop)), size)
+            result = environment.lookup(mop)
+            return self._apply_size(result, size)
         elif mop.t == mop_v:
             # Global variable
-            try:
-                mem_seg = getseg(mop.g)
-                if mem_seg is not None:
-                    seg_perm = mem_seg.perm
-                    if (seg_perm & SEGPERM_WRITE) != 0:
-                        # Writable global: look up symbolically
-                        result = environment.lookup(mop)
-                        return self._apply_size(result, size)
-                    else:
-                        # Read-only global: return address as concrete value
-                        return ExprInt(mop.g, size)
-            except Exception:
-                pass
+            # try:
+            #     mem_seg = getseg(mop.g)
+            #     if mem_seg is not None:
+            #         seg_perm = mem_seg.perm
+            #         if (seg_perm & SEGPERM_WRITE) != 0:
+            #             # Writable global: look up symbolically
+            #             result = environment.lookup(mop)
+            #             return self._apply_size(result, size)
+            #         else:
+            #             # Read-only global: return address as concrete value
+            #             return ExprInt(mop.g, size)
+            # except Exception:
+            #     pass
             result = environment.lookup(mop)
             return self._apply_size(result, size)
 

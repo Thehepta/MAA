@@ -309,11 +309,19 @@ def eva_blks(start_block, microcode_environment: SymbolicMicroCodeEnvironment,
         if irdst.is_cond():
             # 符号条件分支：选择 fallthrough 边，并累积"条件不成立"的约束
             microcode_environment.add_path_condition(irdst.cond, taken=False)
-            fallthrough = irdst.src_false
-            if not fallthrough.is_int():
-                print("Symbolic fallthrough target {0}, stopping".format(fallthrough))
+            fallthrough_false = irdst.src_false
+            if not fallthrough_false.is_int():
+                print("Symbolic fallthrough target {0}, stopping".format(fallthrough_false))
                 break
-            cur_blk = cur_blk.mba.get_mblock(fallthrough.as_int())
+            cur_blk = cur_blk.mba.get_mblock(fallthrough_false.as_int())
+
+            microcode_environment.add_path_condition(irdst.cond, taken=True)
+            fallthrough_true = irdst.src_true
+            if not fallthrough_true.is_int():
+                print("Symbolic fallthrough target {0}, stopping".format(fallthrough_true))
+                break
+            cur_blk = cur_blk.mba.get_mblock(fallthrough_true.as_int())
+
             continue
 
         # 间接/符号跳转目标：无法解析，停止
