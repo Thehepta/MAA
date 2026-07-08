@@ -5,7 +5,7 @@ from d810.Environment import SymbolicMicroCodeEnvironment
 from d810.Interpreter import SymbolicMicroCodeInterpreter
 from d810.hexrays_formatters import format_minsn_t, format_mop_list, format_mop_t
 from d810.hexrays_helpers import append_mop_if_not_in_list, get_mop_index, CONDITIONAL_JUMP_OPCODES, extract_num_mop
-from d810.hexrays_hooks import InstructionDefUseCollector
+from d810.InsnCollector import InstructionDefUseCollector
 from d810.tracker import remove_segment_registers, SymbolicMopHistory
 from ida_hexrays import mop_t, minsn_t, mblock_t, mbl_array_t
 
@@ -142,45 +142,6 @@ class GenericDispatcherInfo(object):
             return True
         return False
 
-    # def emulate_dispatcher_with_father_history(self, father_history: SymbolicMopHistory) -> Tuple[mblock_t, List[minsn_t]]:
-    #     microcode_environment = SymbolicMicroCodeEnvironment()
-    #     dispatcher_input_info = []
-    #     # First, we setup the MicroCodeEnvironment with the state variables (self.entry_block.use_before_def_list)
-    #     # used by the dispatcher
-    #     for initialization_mop in self.entry_block.use_before_def_list:
-    #         # We recover the value of each state variable from the dispatcher father
-    #         symbolic_value = father_history.get_mop_symbolic_value(initialization_mop)
-    #         if symbolic_value is None:
-    #             continue
-    #             # raise NotResolvableFatherException("Can't emulate dispatcher {0} with history {1}"
-    #             #                                    .format(self.entry_block.serial, father_history.block_serial_path))
-    #         # We store this value in the MicroCodeEnvironment
-    #         microcode_environment.define(initialization_mop, symbolic_value)
-    #     #     dispatcher_input_info.append("{0} = {1:x}".format(format_mop_t(initialization_mop),
-    #     #                                                       initialization_mop_value))
-    #     #
-    #     # unflat_logger.info("Executing dispatcher {0} with: {1}"
-    #     #                    .format(self.entry_block.blk.serial, ", ".join(dispatcher_input_info)))
-    #
-    #     # Now, we start the emulation of the code at the dispatcher entry block
-    #     microcode_interpreter = SymbolicMicroCodeInterpreter(microcode_environment)
-    #
-    #     instructions_executed = []
-    #     cur_blk = self.entry_block.blk
-    #     cur_ins = cur_blk.head
-    #     # We will continue emulation while we are in one of the dispatcher blocks
-    #     while self.should_emulation_continue(cur_blk):
-    #         unflat_logger.debug("  Executing: {0}.{1}".format(cur_blk.serial, format_minsn_t(cur_ins)))
-    #         # We evaluate the current instruction of the dispatcher to determine
-    #         # which block and instruction should be executed next
-    #         microcode_interpreter.eval_blk(cur_blk)
-    #         instructions_executed.append(cur_ins)
-    #         cur_blk = microcode_environment.next_blk
-    #         cur_ins = microcode_environment.next_ins
-    #     # We return the first block executed which is not part of the dispatcher
-    #     # and all instructions which have been executed by the dispatcher
-    #     return cur_blk, instructions_executed
-
     def print_info(self, verbose=False):
         unflat_logger.info("Dispatcher information: ")
         unflat_logger.info("  Entry block: {0}.{1}: ".format(self.entry_block.blk.serial,
@@ -207,3 +168,102 @@ class GenericDispatcherInfo(object):
                                                                      format_minsn_t(exit_blk.blk.head)))
                 exit_blk.show_history()
 
+
+
+import ida_hexrays as hr
+
+FLATTENING_JUMP_OPCODES = [hr.m_jnz, hr.m_jz, hr.m_jae, hr.m_jb, hr.m_ja, hr.m_jbe, hr.m_jg, hr.m_jge, hr.m_jl,
+                           hr.m_jle]
+
+class D810OllvmDispatcherInfo(GenericDispatcherInfo):
+
+    def explore(self, blk: mblock_t) -> bool:
+        self.reset()
+        if not self._is_candidate_for_dispatcher_entry_block(blk):
+            return False
+        self.entry_block = GenericDispatcherBlockInfo(blk)
+        self.entry_block.parse()
+        for used_mop in self.entry_block.use_list:
+            append_mop_if_not_in_list(used_mop, self.entry_block.assume_def_list)
+        self.dispatcher_internal_blocks.append(self.entry_block)
+        self._explore_children(self.entry_block)
+        dispatcher_blk_with_external_father = self._get_dispatcher_blocks_with_external_father()
+        # TODO: I think this can be wrong because we are too permissive in detection of dispatcher blocks
+        if len(dispatcher_blk_with_external_father) != 0:
+            return False
+        return True
+
+    def _is_candidate_for_dispatcher_entry_block(self, blk: mblock_t) -> bool:
+        # blk must be a condition branch with one numerical operand
+        num_mop, mop_compared = self._get_comparison_info(blk)
+        if (num_mop is None) or (mop_compared is None):
+            return False
+            # Its fathers are not conditional branch with this mop
+        for father_serial in blk.predset:
+            father_blk = self.mba.get_mblock(father_serial)
+            father_num_mop, father_mop_compared = self._get_comparison_info(father_blk)
+            if (father_num_mop is not None) and (father_mop_compared is not None):
+                if mop_compared.equal_mops(father_mop_compared, hr.EQ_IGNSIZE):
+                    return False
+        return True
+
+    def _get_comparison_info(self, blk: mblock_t) -> Tuple[mop_t, mop_t]:
+        # We check if blk is a good candidate for dispatcher entry block: blk.tail must be a conditional branch
+        if (blk.tail is None) or (blk.tail.opcode not in FLATTENING_JUMP_OPCODES):
+            return None, None
+            # One operand must be numerical
+        num_mop, mop_compared = extract_num_mop(blk.tail)
+        if num_mop is None or mop_compared is None:
+            return None, None
+        return num_mop, mop_compared
+
+
+
+    def is_part_of_dispatcher(self, block_info: GenericDispatcherBlockInfo) -> bool:
+        is_ok = block_info.does_only_need(block_info.father.assume_def_list)
+        if not is_ok:
+            return False
+        if (block_info.blk.tail is not None) and (block_info.blk.tail.opcode not in FLATTENING_JUMP_OPCODES):
+            return False
+        mba_count = self.mba.qty -1
+        if mba_count < block_info.serial:
+            raise RuntimeError("self.mba.qty > block_info.serial")
+        if mba_count == block_info.serial:
+            return False
+        return True
+
+
+    def _explore_children(self, father_info: GenericDispatcherBlockInfo):
+        for child_serial in father_info.blk.succset:
+            if child_serial in [blk_info.blk.serial for blk_info in self.dispatcher_internal_blocks]:
+                return
+            if child_serial in [blk_info.blk.serial for blk_info in self.dispatcher_exit_blocks]:
+                return
+            child_blk = self.mba.get_mblock(child_serial)
+            child_info = GenericDispatcherBlockInfo(child_blk, father_info)
+            child_info.parse()
+            if not self.is_part_of_dispatcher(child_info):
+                self.dispatcher_exit_blocks.append(child_info)
+                # print("self.dispatcher_exit_blocks: {0}".format(child_serial))
+            else:
+                self.dispatcher_internal_blocks.append(child_info)
+                if child_info.comparison_value is not None:
+                    self.comparison_values.append(child_info.comparison_value)
+                self._explore_children(child_info)
+
+    def _get_external_fathers(self, block_info: GenericDispatcherBlockInfo) -> List[mblock_t]:
+        internal_serials = [blk_info.blk.serial for blk_info in self.dispatcher_internal_blocks]
+        external_fathers = []
+        for blk_father in block_info.blk.predset:
+            if blk_father not in internal_serials:
+                external_fathers.append(blk_father)
+        return external_fathers
+
+    def _get_dispatcher_blocks_with_external_father(self) -> List[mblock_t]:
+        dispatcher_blocks_with_external_father = []
+        for blk_info in self.dispatcher_internal_blocks:
+            if blk_info.blk.serial != self.entry_block.blk.serial:
+                external_fathers = self._get_external_fathers(blk_info)
+                if len(external_fathers) > 0:
+                    dispatcher_blocks_with_external_father.append(blk_info)
+        return dispatcher_blocks_with_external_father

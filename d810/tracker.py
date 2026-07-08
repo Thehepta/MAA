@@ -8,7 +8,7 @@ from ida_hexrays import *
 
 from d810.Expr import Expr, ExprInt, ExprId
 from d810.cfg_utils import change_1way_block_successor, change_2way_block_conditional_successor, duplicate_block
-from d810.hexrays_hooks import InstructionDefUseCollector
+from d810.InsnCollector import InstructionDefUseCollector
 from d810.hexrays_helpers import equal_mops_ignore_size, get_mop_index, get_blk_index
 from d810.hexrays_formatters import format_minsn_t, format_mop_t
 
@@ -97,7 +97,7 @@ class SymbolicMopHistory:
         if len(self.unresolved_mop_list) == 0:
             return True
         for x in self.unresolved_mop_list:
-            val = self._initial_environment.lookup(x, create_symbol=False)
+            val = self._initial_environment.lookup(x, create_undefind_symbol=False)
             if val.is_int() is False:
                 return False
         return True

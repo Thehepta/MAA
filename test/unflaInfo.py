@@ -11,21 +11,15 @@ from d810.Environment import SymbolicMicroCodeEnvironment
 from d810.Expr import walk_expr_iter, ExprId, ExprInt, Expr
 from d810.ExprSimplifier import get_branch_condition,simplify
 from d810.Interpreter import SymbolicMicroCodeInterpreter
-from d810.generic import GenericDispatcherInfo
-from d810.generic import GenericDispatcherBlockInfo
+from d810.generic import D810OllvmDispatcherInfo
 from d810.hexrays_formatters import format_mop_t, format_minsn_t, mop_type_to_string
 from d810.hexrays_helpers import append_mop_if_not_in_list, extract_num_mop, CONTROL_FLOW_OPCODES, get_mop_index
 from d810.tracker import duplicate_histories
 from d810.utils import get_mop_name
 
-from ida_hexrays import mblock_t, mop_t, optblock_t, minsn_visitor_t, mbl_array_t,get_mreg_name
 import ida_hexrays as hr
 import ida_kernwin as kw
 import traceback
-import ida_dbg
-
-FLATTENING_JUMP_OPCODES = [hr.m_jnz, hr.m_jz, hr.m_jae, hr.m_jb, hr.m_ja, hr.m_jbe, hr.m_jg, hr.m_jge, hr.m_jl,
-                           hr.m_jle]
 
 utils.enable_console_log(tracker.logger)
 
@@ -190,100 +184,6 @@ class ollvmflaSwitch(object):
                 print(path_cond)
 
 
-class D810OllvmDispatcherInfo(GenericDispatcherInfo):
-
-    def explore(self, blk: mblock_t) -> bool:
-        self.reset()
-        if not self._is_candidate_for_dispatcher_entry_block(blk):
-            return False
-        self.entry_block = GenericDispatcherBlockInfo(blk)
-        self.entry_block.parse()
-        for used_mop in self.entry_block.use_list:
-            append_mop_if_not_in_list(used_mop, self.entry_block.assume_def_list)
-        self.dispatcher_internal_blocks.append(self.entry_block)
-        self._explore_children(self.entry_block)
-        dispatcher_blk_with_external_father = self._get_dispatcher_blocks_with_external_father()
-        # TODO: I think this can be wrong because we are too permissive in detection of dispatcher blocks
-        if len(dispatcher_blk_with_external_father) != 0:
-            return False
-        return True
-
-    def _is_candidate_for_dispatcher_entry_block(self, blk: mblock_t) -> bool:
-        # blk must be a condition branch with one numerical operand
-        num_mop, mop_compared = self._get_comparison_info(blk)
-        if (num_mop is None) or (mop_compared is None):
-            return False
-            # Its fathers are not conditional branch with this mop
-        for father_serial in blk.predset:
-            father_blk = self.mba.get_mblock(father_serial)
-            father_num_mop, father_mop_compared = self._get_comparison_info(father_blk)
-            if (father_num_mop is not None) and (father_mop_compared is not None):
-                if mop_compared.equal_mops(father_mop_compared, hr.EQ_IGNSIZE):
-                    return False
-        return True
-
-    def _get_comparison_info(self, blk: mblock_t) -> Tuple[mop_t, mop_t]:
-        # We check if blk is a good candidate for dispatcher entry block: blk.tail must be a conditional branch
-        if (blk.tail is None) or (blk.tail.opcode not in FLATTENING_JUMP_OPCODES):
-            return None, None
-            # One operand must be numerical
-        num_mop, mop_compared = extract_num_mop(blk.tail)
-        if num_mop is None or mop_compared is None:
-            return None, None
-        return num_mop, mop_compared
-
-
-
-    def is_part_of_dispatcher(self, block_info: GenericDispatcherBlockInfo) -> bool:
-        print("is_part_of_dispatcher:",block_info.blk.serial)
-        for used_before_def_mop in block_info.use_before_def_list:
-            print("used_before_def_mop:",mop_type_to_string(used_before_def_mop.t), used_before_def_mop.dstr())
-
-        is_ok = block_info.does_only_need(block_info.father.assume_def_list)
-        if not is_ok:
-            return False
-        if (block_info.blk.tail is not None) and (block_info.blk.tail.opcode not in FLATTENING_JUMP_OPCODES):
-            return False
-        return True
-
-    def _explore_children(self, father_info: GenericDispatcherBlockInfo):
-        for child_serial in father_info.blk.succset:
-            if child_serial in [blk_info.blk.serial for blk_info in self.dispatcher_internal_blocks]:
-                return
-            if child_serial in [blk_info.blk.serial for blk_info in self.dispatcher_exit_blocks]:
-                return
-            child_blk = self.mba.get_mblock(child_serial)
-            child_info = GenericDispatcherBlockInfo(child_blk, father_info)
-            child_info.parse()
-            if not self.is_part_of_dispatcher(child_info):
-                self.dispatcher_exit_blocks.append(child_info)
-                # print("self.dispatcher_exit_blocks: {0}".format(child_serial))
-            else:
-                self.dispatcher_internal_blocks.append(child_info)
-                if child_info.comparison_value is not None:
-                    self.comparison_values.append(child_info.comparison_value)
-                self._explore_children(child_info)
-                print("self.dispatcher_internal_blocks: {0}".format(child_serial))
-
-    def _get_external_fathers(self, block_info: GenericDispatcherBlockInfo) -> List[mblock_t]:
-        internal_serials = [blk_info.blk.serial for blk_info in self.dispatcher_internal_blocks]
-        external_fathers = []
-        for blk_father in block_info.blk.predset:
-            if blk_father not in internal_serials:
-                external_fathers.append(blk_father)
-        return external_fathers
-
-    def _get_dispatcher_blocks_with_external_father(self) -> List[mblock_t]:
-        dispatcher_blocks_with_external_father = []
-        for blk_info in self.dispatcher_internal_blocks:
-            if blk_info.blk.serial != self.entry_block.blk.serial:
-                external_fathers = self._get_external_fathers(blk_info)
-                if len(external_fathers) > 0:
-                    dispatcher_blocks_with_external_father.append(blk_info)
-        return dispatcher_blocks_with_external_father
-
-
-
 def UnFlaInfo(mba):
     # import pydevd_pycharm
     # pydevd_pycharm.settrace('localhost', port=31235, stdoutToServer=True, stderrToServer=True)
@@ -310,37 +210,37 @@ def UnFlaInfo(mba):
     print("dispatcher_internal_blocks:", dispatcher_internal_blocks)
     end_block_nums = set(Gdbi.blk for Gdbi in dispatch_info.dispatcher_exit_blocks)
     all_paths = find_all_paths_dfs(dispatch_info.entry_block.blk, end_block_nums)
-    print(len(all_paths))
+    print("all_paths len",len(all_paths))
 
-    unflaSwitch = ollvmflaSwitch()
-    for paths in all_paths:
-        unflacase = ollvmflaCase(paths, blk.mba)
-        unflacase.parse()
-        unflaSwitch.add_case(unflacase)
-    unflaSwitch.dump()
-
-    for dispatcher_father_serial in dispatch_block.predset:
-        father_tracker = tracker.MopTracker(unflaSwitch.switch_status, max_nb_block=100, max_path=100)
-        father_tracker.reset()
-        dispatcher_father_block = mba.get_mblock(dispatcher_father_serial)
-        print("MopTracker block:{0}".format(dispatcher_father_serial))
-        father_histories = father_tracker.search_backward(dispatcher_father_block, None,[dispatch_block.serial])
-        if len(father_histories) > 1:
-            nb_duplication, nb_change = duplicate_histories(father_histories)
-            print("father_block:{0} is  multiple branches".format(dispatcher_father_serial))
-            # for history in father_histories:
-            #     if history.is_resolved() is True:
-            #         history.print_info()
-                    # target_blk = unflaSwitch.get_real_blk(history._current_environment.mop_define)
-                    # print("target_blk:",target_blk)
-        else:
-            if len(father_histories) == 1:
-                if father_histories[0].is_resolved() is True:
-                    father_histories[0].print_info()
-                    target_blk = unflaSwitch.get_real_blk(father_histories[0]._current_environment.mop_define)
-                    print("target_blk:",target_blk)
-            else:
-                print("father_block:{0} is  len = 0".format(dispatcher_father_serial))
+    # unflaSwitch = ollvmflaSwitch()
+    # for paths in all_paths:
+    #     unflacase = ollvmflaCase(paths, blk.mba)
+    #     unflacase.parse()
+    #     unflaSwitch.add_case(unflacase)
+    # unflaSwitch.dump()
+    #
+    # for dispatcher_father_serial in dispatch_block.predset:
+    #     father_tracker = tracker.MopTracker(unflaSwitch.switch_status, max_nb_block=100, max_path=100)
+    #     father_tracker.reset()
+    #     dispatcher_father_block = mba.get_mblock(dispatcher_father_serial)
+    #     print("MopTracker block:{0}".format(dispatcher_father_serial))
+    #     father_histories = father_tracker.search_backward(dispatcher_father_block, None,[dispatch_block.serial])
+    #     if len(father_histories) > 1:
+    #         nb_duplication, nb_change = duplicate_histories(father_histories)
+    #         print("father_block:{0} is  multiple branches".format(dispatcher_father_serial))
+    #         # for history in father_histories:
+    #         #     if history.is_resolved() is True:
+    #         #         history.print_info()
+    #                 # target_blk = unflaSwitch.get_real_blk(history._current_environment.mop_define)
+    #                 # print("target_blk:",target_blk)
+    #     else:
+    #         if len(father_histories) == 1:
+    #             if father_histories[0].is_resolved() is True:
+    #                 father_histories[0].print_info()
+    #                 target_blk = unflaSwitch.get_real_blk(father_histories[0]._current_environment.mop_define)
+    #                 print("target_blk:",target_blk)
+    #         else:
+    #             print("father_block:{0} is  len = 0".format(dispatcher_father_serial))
     #     try:
     #         # 还原,分发器到分发器的前驱这条代码路径的混淆
     #         for cur_history in father_histories:

@@ -16,6 +16,20 @@ from d810.Expr import (
 logger = logging.getLogger('D810.symbolic_simplifier')
 
 
+def get_expr_index(searched_expr: Expr, expr_list) -> int:
+    for i, expr in enumerate(expr_list):
+        if expr == searched_expr:
+            return i
+    return -1
+
+
+def append_expr_if_not_in_list(expr,expr_list) -> bool:
+    mop_index = get_expr_index(expr, expr_list)
+    if mop_index == -1:
+        expr_list.append(expr)
+        return True
+    return False
+
 def get_branch_condition(expr_cond: ExprCond, target_cond) -> Optional[Expr|None]:
     cond = expr_cond.cond
     bit_one = ExprInt(1, cond.size)

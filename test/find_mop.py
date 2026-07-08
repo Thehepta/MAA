@@ -13,7 +13,7 @@ import traceback
 
 from d810.cfg_utils import insert_nop_blk, change_1way_block_successor, change_2way_block_conditional_successor
 from d810.hexrays_formatters import opcode_to_string, mop_type_to_string, get_mop_content
-from d810.hexrays_hooks import InstructionDefUseCollector
+from d810.InsnCollector import InstructionDefUseCollector
 from ida_hexrays import mblock_t
 from lucid.ui.graph import show_microcode_graph
 

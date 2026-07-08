@@ -19,7 +19,7 @@ from ida_hexrays import (
 from d810.Expr import (
     Expr, ExprId, ExprOp,
 )
-from d810.ExprSimplifier import simplify
+from d810.ExprSimplifier import simplify, append_expr_if_not_in_list
 from d810.hexrays_formatters import format_mop_t, mop_type_to_string
 from d810.errors import UnsupportedMopException
 
@@ -73,6 +73,8 @@ class MopExprId(Expr):
 
 
 
+
+
 class SymbolicMicroCodeEnvironment:
     """
     Symbolic environment mapping microcode operands to symbolic expressions.
@@ -84,7 +86,7 @@ class SymbolicMicroCodeEnvironment:
 
     def __init__(self):
         self.mop_define = {}
-        self.mop_undefind = []
+        self.mop_undefind : List[Expr] = []
         self.mop_unsupport = {}
         # 符号化跳转目标，类似 Miasm 的 IRDst（per-block：当前块的出口）
         # 具体跳转: ExprInt(serial, 4)
@@ -95,13 +97,19 @@ class SymbolicMicroCodeEnvironment:
         # 与 irdst 不同，它跨块累积，整条路径的可行性 = 列表中所有约束的合取(AND)。
         self.path_conditions: List[Expr] = []
 
+    def merge_env(self,env:SymbolicMicroCodeEnvironment):
+        self.mop_define.update(env.mop_define)
+        self.mop_unsupport.update(env.mop_unsupport)
+        for mop_expr in env.mop_undefind:
+            append_expr_if_not_in_list(mop_expr, self.mop_undefind)
 
 
     def get_copy(self) -> SymbolicMicroCodeEnvironment:
         """Create a full copy of this environment (all records are copied)."""
         new_env = SymbolicMicroCodeEnvironment()
         new_env.mop_define = self.mop_define.copy()
-        new_env.irdst = self.irdst
+        new_env.mop_undefind =self.mop_undefind.copy()
+        new_env.irdst = self.irdst.copy()
         new_env.path_conditions = list(self.path_conditions)
         return new_env
 
@@ -137,7 +145,7 @@ class SymbolicMicroCodeEnvironment:
             raise UnsupportedMopException("Defining unsupported mop type '{0}': '{1}'".format(
                 mop_type_to_string(mop.t), format_mop_t(mop)))
 
-    def lookup(self, mop: mop_t, create_symbol: bool = True) -> Expr:
+    def lookup(self, mop: mop_t, create_undefind_symbol: bool = True) -> Expr:
         """
         Look up a mop's symbolic value.
         If not found and create_symbol is True, returns a fresh symbolic variable.
@@ -154,35 +162,13 @@ class SymbolicMicroCodeEnvironment:
             return result
 
         # Not found: create a fresh symbolic variable
-        if create_symbol:
+        if create_undefind_symbol:
             mop_id = MopExprId(mop)
             self.mop_undefind.append(mop_id)
             symb_log.debug("Created symbolic variable for undefined mop: {0}".format(mop_id.name))
             return mop_id
 
         return None
-
-    def Mop2Expr(self,mop):
-
-        if mop.t in (mop_r, mop_S, mop_v):
-            return MopExprId(mop)
-        else:
-            return None
-
-    def Expr2Mop(self,expr):
-
-        mop = mop_t()
-        if expr.t == mop_S:
-            mop.make_stkvar(self.mba, expr.s.off)
-            return mop
-        elif expr.t == mop_v:
-            mop.make_gvar(expr.g)
-            return mop
-        elif expr.t == mop_r:
-            mop.make_reg(expr.r)
-            return mop
-        else:
-            return None
 
     def dump(self,logger=None):
         """

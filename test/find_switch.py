@@ -151,65 +151,6 @@ class ollvmflaSwitch(object):
             for path_cond in case.path_conds:
                 print(path_cond)
 
-
-class SymbolExecHistory:
-
-    def __init__(self):
-        self.history_blk = []
-
-        self._initial_environment = SymbolicMicroCodeEnvironment()
-
-    def get_copy(self) -> "SymbolExecHistory":
-        new_history = SymbolExecHistory()
-        new_history.history = [x for x in self.history_blk]
-        new_history._initial_environment = self._initial_environment.get_copy()
-
-        return new_history
-
-    @property
-    def initial_environment(self):
-        return self._initial_environment
-
-
-class SwitchFind(object):
-
-
-    def __init__(self):
-        self.history = SymbolExecHistory()
-
-    def is_resolved(self):
-        pass
-
-    def exec_branch(self,current_block):
-
-        cur_blk = current_block
-        microcode_interpreter = SymbolicMicroCodeInterpreter()
-        while not self.is_resolved():
-            microcode_interpreter.eval_blk(cur_blk, self.history.initial_environment)
-            if cur_blk.npred() > 1:
-                return cur_blk
-            elif cur_blk.npred() == 0:
-                return None
-            else:
-                cur_blk = cur_blk.mba.get_mblock(cur_blk.predset[0])
-
-
-    def SwitchParse(self,dispatch_blk):
-
-        blk_with_multiple_pred = self.exec_branch(dispatch_blk)
-        if self.is_resolved():
-            return [self.history]
-
-        possible_histories = []
-        for blk_pred_serial in blk_with_multiple_pred.predset:
-            possible_histories += self.SwitchParse(self.mba.get_mblock(blk_pred_serial))
-        return possible_histories
-
-
-
-
-
-
 def find_all_paths_from_dispatch(dispatch_block):
     """
     从调度块开始，先序遍历所有路径，边遍历边符号执行。
@@ -249,11 +190,7 @@ def find_all_paths_from_dispatch(dispatch_block):
 
             # 检测交叉：如果这个块已经被其他路径访问过
             if succ_serial in visited_blocks:
-                raise RuntimeError(
-                    f"路径交叉错误：块 {succ_serial} 被多条路径访问！\n"
-                    f"当前路径: {' -> '.join(map(str, path))}\n"
-                    f"从调度块向下的节点不应该交叉。"
-                )
+                continue
 
             # 保存之前累积的环境
             prev_env = env
@@ -263,16 +200,15 @@ def find_all_paths_from_dispatch(dispatch_block):
             succ_block = node.mba.get_mblock(succ_serial)
             interpreter.eval_blk(succ_block, block_env)
             print("current:", succ_block.serial)
+
             # 检查终止条件：当前块的未定义变量是否能在之前累积的环境中找到
-            # if block_env.irdst.is_cond() is False:
-            #     continue
             can_terminate = False
             if block_env.mop_undefind:  # 当前块的未定义变量
                 for mop_expr in block_env.mop_undefind:
                     print("mop_expr current:",succ_block.serial)
                     mop = mop_expr.get_mop()
                     # 在之前累积的环境中查找
-                    found_in_define = prev_env.lookup(mop, create_symbol=False) is not None
+                    found_in_define = prev_env.lookup(mop, create_undefind_symbol=False) is not None
                     found_in_undefind = any( equal_mops_ignore_size(h_mop_expr.get_mop(),mop) for h_mop_expr in prev_env.mop_undefind)
 
                     # 如果这个未定义变量在之前环境中找不到，终止这条路径
