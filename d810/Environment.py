@@ -17,7 +17,7 @@ from ida_hexrays import (
 )
 
 from d810.Expr import (
-    Expr, ExprId, ExprOp,
+    Expr, ExprId, ExprOp, ExprCond,
 )
 from d810.ExprSimplifier import simplify, append_expr_if_not_in_list
 from d810.hexrays_formatters import format_mop_t, mop_type_to_string
@@ -91,18 +91,24 @@ class SymbolicMicroCodeEnvironment:
         # 符号化跳转目标，类似 Miasm 的 IRDst（per-block：当前块的出口）
         # 具体跳转: ExprInt(serial, 4)
         # 条件跳转: ExprCond(cond, ExprInt(target), ExprInt(fallthrough))
-        self.irdst: Optional[Expr] = None
+        self.irdst: Optional[Expr|ExprCond] = None
 
         # 路径约束（per-path）：执行所经过的每个条件分支的约束，按所选方向取正/取反。
         # 与 irdst 不同，它跨块累积，整条路径的可行性 = 列表中所有约束的合取(AND)。
-        self.path_conditions: List[Expr] = []
+        self.his_path_cond: List[Expr] = []
 
     def merge_env(self,env:SymbolicMicroCodeEnvironment):
         self.mop_define.update(env.mop_define)
         self.mop_unsupport.update(env.mop_unsupport)
+
         for mop_expr in env.mop_undefind:
             append_expr_if_not_in_list(mop_expr, self.mop_undefind)
 
+        for mop_expr in env.his_path_cond:
+            append_expr_if_not_in_list(mop_expr, self.his_path_cond)
+
+        if env.irdst != None:
+            self.irdst = env.irdst.copy()
 
     def get_copy(self) -> SymbolicMicroCodeEnvironment:
         """Create a full copy of this environment (all records are copied)."""
@@ -110,7 +116,7 @@ class SymbolicMicroCodeEnvironment:
         new_env.mop_define = self.mop_define.copy()
         new_env.mop_undefind =self.mop_undefind.copy()
         new_env.irdst = self.irdst.copy()
-        new_env.path_conditions = list(self.path_conditions)
+        new_env.his_path_cond = list(self.his_path_cond)
         return new_env
 
     def add_path_condition(self, cond: Expr, taken: bool):
@@ -126,9 +132,9 @@ class SymbolicMicroCodeEnvironment:
         if cond is None or cond.is_int():
             return
         if taken:
-            self.path_conditions.append(cond)
+            self.his_path_cond.append(cond)
         else:
-            self.path_conditions.append(simplify(ExprOp('lnot', [cond], 1)))
+            self.his_path_cond.append(simplify(ExprOp('lnot', [cond], 1)))
 
     def defineExpr(self, mopExpr: MopExprId, value: Expr):
         self.mop_define[mopExpr] = value
@@ -183,9 +189,9 @@ class SymbolicMicroCodeEnvironment:
 
         if self.irdst is not None:
             log.debug("IRDst: {0}".format(self.irdst))
-        if len(self.path_conditions) > 0:
+        if len(self.his_path_cond) > 0:
             log.debug("Path conditions (all must hold):")
-            for i, cond in enumerate(self.path_conditions):
+            for i, cond in enumerate(self.his_path_cond):
                 log.debug("  [{0}] {1}".format(i, cond))
 
         if len(self.mop_define) > 0:

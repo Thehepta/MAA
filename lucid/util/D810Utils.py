@@ -8,7 +8,7 @@ from d810.hexrays_formatters import opcode_to_string, mop_type_to_string, get_mo
 from d810.InsnCollector import InstructionDefUseCollector
 from d810.Expr import ExprInt
 
-from d810.tracker import MopTracker, remove_segment_registers
+from d810.tracker import MopTracker
 from lucid.util import log
 
 
@@ -64,84 +64,6 @@ def UnFlaInfo(mba, dispatch_block):
 
     for path in paths:
         print("path:", path)
-
-
-def get_mop_key(op) -> str:
-    """规整化 mop 的物理特征，作为唯一比对键"""
-    if op.t == ida_hexrays.mop_r:
-        return f"reg_{op.r}"  # 绑定寄存器编号，无视访问大小和对象实例差异
-    elif op.t == ida_hexrays.mop_S:
-        return f"stk_{op.s.off}_{op.dstr()}"
-    return op.dstr()
-
-
-def get_block_top_level_inputs_for_mop(mblock) -> list:
-    """
-    判断块最后一条指令是否是条件跳转。
-    如果不是，直接返回空列表。
-    如果是，向上追踪影响条件跳转变量的顶层输入。
-    """
-    if not mblock:
-        return []
-
-    # 检查最后一条指令是否是条件跳转
-    last_insn = mblock.tail
-
-    # 判断是否是条件跳转指令
-    if (last_insn is None) or (not ida_hexrays.is_mcode_jcond(last_insn.opcode)):
-        # 不是条件跳转，直接返回
-        print(f"--- Block {mblock.serial} 最后一条指令不是条件跳转，跳过 ---")
-        return []
-
-    # 收集条件跳转使用的变量
-    collector = InstructionDefUseCollector()
-    last_insn.for_all_ops(collector)
-
-    ins_mop_info = collector.unresolved_ins_mops + collector.memory_unresolved_ins_mops
-    condition_uses = remove_segment_registers(ins_mop_info.unresolved_ins_mops)
-
-    if not condition_uses:
-        print(f"--- Block {mblock.serial} 条件跳转没有使用变量 ---")
-        return []
-
-    print(f"--- 条件跳转使用的变量: {[op.dstr() for op in condition_uses]} ---")
-
-    # 追踪列表：{key: mop对象}
-    tracking_vars = {}
-
-    for use_mop in condition_uses:
-        key = get_mop_key(use_mop)
-        tracking_vars[key] = use_mop
-
-    # 从倒数第二条指令开始向前遍历
-    insn = last_insn.prev
-    while insn:
-        collector = InstructionDefUseCollector()
-        insn.for_all_ops(collector)
-
-        current_defs = collector.target_mops
-        current_uses = collector.unresolved_ins_mops + collector.memory_unresolved_ins_mops
-
-        # 检查当前指令是否定义了追踪变量
-        for def_mop in current_defs:
-            if def_mop.t in [ida_hexrays.mop_r, ida_hexrays.mop_S, ida_hexrays.mop_v]:
-                def_key = get_mop_key(def_mop)
-
-                # 如果定义了追踪变量，移除它，并加入当前指令的输入
-                if def_key in tracking_vars:
-                    del tracking_vars[def_key]
-
-                    # 将当前指令的输入加入追踪
-                    for use_mop in current_uses:
-                        use_key = get_mop_key(use_mop)
-                        if use_key not in tracking_vars:
-                            tracking_vars[use_key] = use_mop
-
-        insn = insn.prev
-
-    top_inputs = list(tracking_vars.values())
-    print(f"--- Block {mblock.serial} 影响条件跳转的顶层输入数量: {len(top_inputs)} ---")
-    return top_inputs
 
 
 def get_block_top_level_inputs(current_block) -> list:

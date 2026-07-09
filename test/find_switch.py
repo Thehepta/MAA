@@ -160,86 +160,88 @@ def find_all_paths_from_dispatch(dispatch_block):
     @param dispatch_block: 调度块
     @return: [(path, environment), ...] 路径和对应的符号执行环境
     """
+    try:
+        if not dispatch_block:
+            return []
 
-    if not dispatch_block:
-        return []
+        # 记录所有已访问的块（用于检测交叉）
+        visited_blocks = set()
 
-    # 记录所有已访问的块（用于检测交叉）
-    visited_blocks = set()
+        res = []
+        interpreter = SymbolicMicroCodeInterpreter()
 
-    res = []
-    interpreter = SymbolicMicroCodeInterpreter()
+        # 初始环境，先执行调度块
+        initial_env = SymbolicMicroCodeEnvironment()
+        interpreter.eval_blk(dispatch_block, initial_env)
+        visited_blocks.add(dispatch_block.serial)
 
-    # 初始环境，先执行调度块
-    initial_env = SymbolicMicroCodeEnvironment()
-    interpreter.eval_blk(dispatch_block, initial_env)
-    visited_blocks.add(dispatch_block.serial)
+        # 栈元素: (当前块, 路径, 累积的符号执行环境)
+        stack = [(dispatch_block, [dispatch_block.serial], initial_env)]
 
-    # 栈元素: (当前块, 路径, 累积的符号执行环境)
-    stack = [(dispatch_block, [dispatch_block.serial], initial_env)]
+        while stack:
+            node, path, env = stack.pop()
 
-    while stack:
-        node, path, env = stack.pop()
+            # 检查后继块
+            has_valid_successor = False
+            for succ_serial in node.succset:
+                # 避免环路（同一条路径内）
+                if succ_serial in path:
+                    continue
 
-        # 检查后继块
-        has_valid_successor = False
-        for succ_serial in node.succset:
-            # 避免环路（同一条路径内）
-            if succ_serial in path:
-                continue
+                # 检测交叉：如果这个块已经被其他路径访问过
+                if succ_serial in visited_blocks:
+                    raise RuntimeError("analyzia dispatch failed")
+                    continue
 
-            # 检测交叉：如果这个块已经被其他路径访问过
-            if succ_serial in visited_blocks:
-                continue
+                # 保存之前累积的环境
+                prev_env = env
 
-            # 保存之前累积的环境
-            prev_env = env
+                # 用干净的环境执行当前块（不累积）
+                block_env = SymbolicMicroCodeEnvironment()
+                succ_block = node.mba.get_mblock(succ_serial)
+                interpreter.eval_blk(succ_block, block_env)
 
-            # 用干净的环境执行当前块（不累积）
-            block_env = SymbolicMicroCodeEnvironment()
-            succ_block = node.mba.get_mblock(succ_serial)
-            interpreter.eval_blk(succ_block, block_env)
-            print("current:", succ_block.serial)
+                # 检查终止条件：当前块的未定义变量是否能在之前累积的环境中找到
+                can_terminate = False
+                if block_env.mop_undefind:  # 当前块的未定义变量
+                    for mop_expr in block_env.mop_undefind:
+                        mop = mop_expr.get_mop()
+                        # 在之前累积的环境中查找
+                        found_in_define = prev_env.lookup(mop, create_undefind_symbol=False) is not None
+                        found_in_undefind = any( equal_mops_ignore_size(h_mop_expr.get_mop(),mop) for h_mop_expr in prev_env.mop_undefind)
 
-            # 检查终止条件：当前块的未定义变量是否能在之前累积的环境中找到
-            can_terminate = False
-            if block_env.mop_undefind:  # 当前块的未定义变量
-                for mop_expr in block_env.mop_undefind:
-                    print("mop_expr current:",succ_block.serial)
-                    mop = mop_expr.get_mop()
-                    # 在之前累积的环境中查找
-                    found_in_define = prev_env.lookup(mop, create_undefind_symbol=False) is not None
-                    found_in_undefind = any( equal_mops_ignore_size(h_mop_expr.get_mop(),mop) for h_mop_expr in prev_env.mop_undefind)
+                        # 如果这个未定义变量在之前环境中找不到，终止这条路径
+                        if not (found_in_define or found_in_undefind):
+                            can_terminate = True
+                            break
 
-                    # 如果这个未定义变量在之前环境中找不到，终止这条路径
-                    if not (found_in_define or found_in_undefind):
-                        can_terminate = True
-                        break
+                if block_env.irdst.is_cond() is False:
+                    can_terminate = True
+                # 如果终止了，不再继续向下
+                if can_terminate:
+                    new_env = prev_env.get_copy()
+                    interpreter.eval_blk(succ_block, new_env)
+                    res.append((path + [succ_serial], new_env))
+                    # print(f"  路径 {' -> '.join(map(str, path + [succ_serial]))} "
+                    #       f"终止：发现未定义变量 {mop_expr.name} 在之前的环境中找不到")
+                    continue
 
-            if block_env.irdst.is_cond() is False:
-                can_terminate = True
-            # 如果终止了，不再继续向下
-            if can_terminate:
+
+                # 继续向下执行：合并环境
                 new_env = prev_env.get_copy()
                 interpreter.eval_blk(succ_block, new_env)
-                res.append((path + [succ_serial], new_env))
-                # print(f"  路径 {' -> '.join(map(str, path + [succ_serial]))} "
-                #       f"终止：发现未定义变量 {mop_expr.name} 在之前的环境中找不到")
-                continue
+                visited_blocks.add(succ_serial)
+                stack.append((succ_block, path + [succ_serial], new_env))
+                has_valid_successor = True
 
+            # 如果没有有效后继（死路），也记录
+            if not has_valid_successor and len(node.succset) == 0:
+                res.append((path, env))
+        print(visited_blocks)
+        return res
 
-            # 继续向下执行：合并环境
-            new_env = prev_env.get_copy()
-            interpreter.eval_blk(succ_block, new_env)
-            visited_blocks.add(succ_serial)
-            stack.append((succ_block, path + [succ_serial], new_env))
-            has_valid_successor = True
-
-        # 如果没有有效后继（死路），也记录
-        if not has_valid_successor and len(node.succset) == 0:
-            res.append((path, env))
-
-    return res
+    except RuntimeError as e:
+        return None
 
 
 
@@ -273,7 +275,8 @@ def UnFlaInfo(mba):
         # 打印最终跳转目标
         if env.irdst:
             print(f"  irdst: {env.irdst}")
-
+            for his_cond in env.his_path_cond:
+                print("his_cond:",his_cond)
         # # 打印未定义的变量
         # if env.mop_undefind:
         #     print(f"  未定义变量: {len(env.mop_undefind)} 个")

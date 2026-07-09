@@ -1,3 +1,4 @@
+
 from ida_hexrays import *
 from typing import List, Tuple
 from ida_hexrays import mop_d, mop_n, m_stx, m_ldx, m_xdu, m_xds, mop_z, mop_fn, mop_S, mop_v, EQ_IGNSIZE, mop_b, \
@@ -355,3 +356,5 @@ def get_blk_index(searched_blk: mblock_t, blk_list: List[mblock_t]) -> int:
         return blk_serial_list.index(searched_blk.serial)
     except ValueError:
         return -1
+
+

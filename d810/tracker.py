@@ -8,7 +8,7 @@ from ida_hexrays import *
 
 from d810.Expr import Expr, ExprInt, ExprId
 from d810.cfg_utils import change_1way_block_successor, change_2way_block_conditional_successor, duplicate_block
-from d810.InsnCollector import InstructionDefUseCollector
+from d810.InsnCollector import InstructionDefUseCollector, remove_segment_registers
 from d810.hexrays_helpers import equal_mops_ignore_size, get_mop_index, get_blk_index
 from d810.hexrays_formatters import format_minsn_t, format_mop_t
 
@@ -514,27 +514,3 @@ def duplicate_histories(var_histories: List[SymbolicMopHistory], max_nb_pass: in
         logger.info(" end.{0}: {1}".format(i, var_history.block_serial_path))
     return total_nb_duplication, total_nb_change
 
-
-def get_segment_register_indexes(mop_list: List[mop_t]) -> List[int]:
-    # This is a very dirty and probably buggy
-    segment_register_indexes = []
-    for i, mop in enumerate(mop_list):
-        if mop.t == mop_r:
-            formatted_mop = format_mop_t(mop)
-            if formatted_mop in ["ds.2", "cs.2", "es.2", "ss.2"]:
-                segment_register_indexes.append(i)
-    return segment_register_indexes
-
-
-def remove_segment_registers(mop_list: List[mop_t]) -> List[mop_t]:
-    # TODO: instead of doing that, we should add the segment registers to the (global?) emulation environment
-    segment_register_indexes = get_segment_register_indexes(mop_list)
-    if len(segment_register_indexes) == 0:
-        return mop_list
-    new_mop_list = []
-    for i, mop in enumerate(mop_list):
-        if i in segment_register_indexes:
-            pass
-        else:
-            new_mop_list.append(mop)
-    return new_mop_list

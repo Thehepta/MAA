@@ -23,14 +23,15 @@ def get_expr_index(searched_expr: Expr, expr_list) -> int:
     return -1
 
 
-def append_expr_if_not_in_list(expr,expr_list) -> bool:
+def append_expr_if_not_in_list(expr, expr_list) -> bool:
     mop_index = get_expr_index(expr, expr_list)
     if mop_index == -1:
         expr_list.append(expr)
         return True
     return False
 
-def get_branch_condition(expr_cond: ExprCond, target_cond) -> Optional[Expr|None]:
+
+def get_branch_condition(expr_cond: ExprCond, target_cond) -> Optional[Expr | None]:
     cond = expr_cond.cond
     bit_one = ExprInt(1, cond.size)
     bit_zero = ExprInt(0, cond.size)
@@ -40,6 +41,7 @@ def get_branch_condition(expr_cond: ExprCond, target_cond) -> Optional[Expr|None
         return ExprOp("==", [cond, bit_zero], 4)
     else:
         return None
+
 
 def unsigned_to_signed(value: int, size: int) -> int:
     """Convert unsigned value to signed for given byte size."""
@@ -201,7 +203,7 @@ def _simplify_binary(op: str, left: Expr, right: Expr, size: int, mask: int) -> 
 
     # ---- Full constant folding ----
     if left.is_int() and right.is_int():
-        result = _eval_concrete_binary(op, left.as_int(),left.size,right.as_int(),right.size, size, mask)
+        result = _eval_concrete_binary(op, left.as_int(), left.size, right.as_int(), right.size, size, mask)
         if result is not None:
             return ExprInt(result, size)
 
@@ -303,7 +305,8 @@ def _resize(expr: Expr, size: int, mask: int) -> Expr:
     return expr
 
 
-def _eval_concrete_binary(op: str, left: int, left_size: int,right: int,right_size: int, size: int, mask: int) -> Optional[int]:
+def _eval_concrete_binary(op: str, left: int, left_size: int, right: int, right_size: int, size: int, mask: int) -> \
+Optional[int]:
     """Evaluate a binary operation on two concrete values. Returns None if op is unsupported."""
     try:
         if op == '+':

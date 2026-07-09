@@ -11,11 +11,13 @@ import sys
 import os
 
 # Add parent directory to path so we can import d810 modules
+from typing import List
+
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from d810.Expr import (
     ExprInt, ExprId, ExprMem, ExprOp,
-    ExprSlice, ExprCompose, ExprCond, walk_expr_iter
+    ExprSlice, ExprCompose, ExprCond, walk_expr_iter, Expr
 )
 from d810.ExprSimplifier import simplify, unsigned_to_signed,signed_to_unsigned
 
@@ -778,8 +780,49 @@ def test_jg_condition():
     print("  [PASS] test_jg_condition")
 
 
+def merge_and_exprs(expr_list: List[Expr]) -> Expr:
+    if len(expr_list) == 1:
+        return expr_list[0]
+    res = expr_list[0]
+    for e in expr_list[1:]:
+        res = ExprOp("&", [res, e],4)
+    return res
 
 
+
+def test_merge_two_cond_constraints():
+    """
+    测试目标两条约束：
+    ((x4:8 <=s 0xEB90E61BBB6C04B3:8):1 == 1:1):4
+    ((x4:8 <=s 0x9DD55D64D07A33B1:8):1 == 1:1):4
+    合并为逻辑与约束，并验证替换、化简、求值流程
+    """
+    # 1. 构造符号变量 x4 8字节
+    x4 = ExprId("x4", 8)
+    const1 = ExprInt(0xEB90E61BBB6C04B3, 8)
+    const2 = ExprInt(0x9DD55D64D07A33B1, 8)
+
+    # 构造第一条原始约束
+    cmp1 = ExprOp("<=s", [x4, const1],4)
+    cons1 = ExprOp("==", [cmp1, ExprInt(1, 1)],4)
+
+    # 构造第二条原始约束
+    cmp2 = ExprOp("<=s", [x4, const2],4)
+    cons2 = ExprOp("==", [cmp2, ExprInt(1, 1)],4)
+
+    print("原始约束1:", cons1)
+    print("原始约束2:", cons2)
+
+    # 3. 两条条件 AND 合并
+    # 2. 化简 A==1 去除外层等式
+    s1 = simplify(cons1)
+    s2 = simplify(cons2)
+    print("化简后约束1:", s1)
+    print("化简后约束2:", s2)
+
+    # 3. 两条条件 AND 合并
+    total_constraint = merge_and_exprs([s1, s2])
+    print("合并后总约束:", total_constraint)
 
 def run_all_tests():
     """Run all tests."""
@@ -870,5 +913,6 @@ test_simplify_overflow = test_overflow_masking
 
 if __name__ == "__main__":
     # run_all_tests()
-    test_cond_jz_expr_replace()
-    test_cond_jz_expr_replace2()
+    # test_cond_jz_expr_replace()
+    # test_cond_jz_expr_replace2()
+    test_merge_two_cond_constraints()

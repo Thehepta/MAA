@@ -1,12 +1,9 @@
 import logging
 from typing import List, Tuple
 
-from d810.Environment import SymbolicMicroCodeEnvironment
-from d810.Interpreter import SymbolicMicroCodeInterpreter
 from d810.hexrays_formatters import format_minsn_t, format_mop_list, format_mop_t
 from d810.hexrays_helpers import append_mop_if_not_in_list, get_mop_index, CONDITIONAL_JUMP_OPCODES, extract_num_mop
-from d810.InsnCollector import InstructionDefUseCollector
-from d810.tracker import remove_segment_registers, SymbolicMopHistory
+from d810.InsnCollector import InstructionDefUseCollector, remove_segment_registers
 from ida_hexrays import mop_t, minsn_t, mblock_t, mbl_array_t
 
 unflat_logger = logging.getLogger('D810.unflat')
