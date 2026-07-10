@@ -9,6 +9,16 @@ from d810.hexrays_formatters import block_printer
 
 helper_logger = logging.getLogger('D810.helper')
 
+# def change_way_block_successor(blk: mblock_t, make_successor_serial: int, modify_successor_serial: int) -> bool:
+#     if change_1way_block_successor(blk, make_successor_serial):
+#         return True
+#     if modify_successor_serial == blk.tail.d.b:
+#         change_2way_block_conditional_successor(blk, make_successor_serial)
+#     else:
+#         print(" not sure this is suppose to happen")
+#         change_1way_block_successor(pred_block.mba.get_mblock(pred_block.serial + 1), duplicated_blk_jmp.serial)
+#
+
 
 def log_block_info(blk: mblock_t, logger_func=helper_logger.info):
     if blk is None:

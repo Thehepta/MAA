@@ -98,6 +98,8 @@ class SymbolicMopHistory:
             return True
         for x in self.unresolved_mop_list:
             val = self._initial_environment.lookup(x, create_undefind_symbol=False)
+            if val is None:
+                return False
             if val.is_int() is False:
                 return False
         return True
@@ -151,9 +153,9 @@ class SymbolicMopHistory:
         self._is_dirty = False
         return True
 
-    def get_mop_expr_list(self):
+    def get_defind_expr(self):
         self._execute_microcode()
-        return self._current_environment.mop_undefind
+        return self._current_environment.mop_define
 
     def get_mop_symbolic_value(self, searched_mop: mop_t) -> Expr:
         """

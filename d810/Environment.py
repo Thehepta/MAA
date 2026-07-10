@@ -97,6 +97,14 @@ class SymbolicMicroCodeEnvironment:
         # 与 irdst 不同，它跨块累积，整条路径的可行性 = 列表中所有约束的合取(AND)。
         self.his_path_cond: List[Expr] = []
 
+    def get_path_cond_expr(self):
+        if len(self.his_path_cond) == 1:
+            return self.his_path_cond[0]
+        res = self.his_path_cond[0]
+        for e in self.his_path_cond[1:]:
+            res = ExprOp("&", [res, e], 4)
+        return res
+
     def merge_env(self,env:SymbolicMicroCodeEnvironment):
         self.mop_define.update(env.mop_define)
         self.mop_unsupport.update(env.mop_unsupport)
@@ -115,7 +123,8 @@ class SymbolicMicroCodeEnvironment:
         new_env = SymbolicMicroCodeEnvironment()
         new_env.mop_define = self.mop_define.copy()
         new_env.mop_undefind =self.mop_undefind.copy()
-        new_env.irdst = self.irdst.copy()
+        if new_env.irdst is not None:
+            new_env.irdst = self.irdst.copy()
         new_env.his_path_cond = list(self.his_path_cond)
         return new_env
 

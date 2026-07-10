@@ -181,8 +181,6 @@ def find_all_paths_from_dispatch(dispatch_block):
         while stack:
             node, path, env = stack.pop()
 
-            # 检查后继块
-            has_valid_successor = False
             for succ_serial in node.succset:
                 # 避免环路（同一条路径内）
                 if succ_serial in path:
@@ -232,10 +230,9 @@ def find_all_paths_from_dispatch(dispatch_block):
                 interpreter.eval_blk(succ_block, new_env)
                 visited_blocks.add(succ_serial)
                 stack.append((succ_block, path + [succ_serial], new_env))
-                has_valid_successor = True
 
             # 如果没有有效后继（死路），也记录
-            if not has_valid_successor and len(node.succset) == 0:
+            if len(node.succset) == 0:
                 res.append((path, env))
         print(visited_blocks)
         return res
