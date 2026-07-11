@@ -11,7 +11,7 @@ from d810.Environment import SymbolicMicroCodeEnvironment
 from d810.Expr import walk_expr_iter, ExprId, ExprInt, Expr
 from d810.ExprSimplifier import get_branch_condition,simplify
 from d810.Interpreter import SymbolicMicroCodeInterpreter
-from d810.cfg_utils import change_1way_block_successor
+from d810.cfg_utils import change_1way_block_successor, change_2way_block_conditional_successor
 from d810.generic import GenericDispatcherInfo, D810OllvmDispatcherInfo
 from d810.generic import GenericDispatcherBlockInfo
 from d810.hexrays_formatters import format_mop_t, format_minsn_t
@@ -221,12 +221,20 @@ def UnFlaInfo(mba):
         if target_blk == -1 :
             continue
         print("make:{0} -> {1}:".format(dispatcher_father_block.serial,target_blk))
-        change_1way_block_successor(dispatcher_father_block, target_blk)
+        change_way_block_successor(dispatcher_father_block, target_blk,dispatch_block.serial)
 
+
+def change_way_block_successor(blk: mblock_t, make_successor_serial: int, modify_successor_serial: int) -> bool:
+    if change_1way_block_successor(blk, make_successor_serial):
+        return True
+    if modify_successor_serial == blk.tail.d.b:
+        change_2way_block_conditional_successor(blk, make_successor_serial)
+    else:
+        print(" not sure this is suppose to happen")
 # 将函数转变成 ida的mba，然后进行解混淆，并显示解混淆后的cfg
 def start():
-    import pydevd_pycharm
-    pydevd_pycharm.settrace('localhost', port=31235, stdoutToServer=True, stderrToServer=True)
+    # import pydevd_pycharm
+    # pydevd_pycharm.settrace('localhost', port=31235, stdoutToServer=True, stderrToServer=True)
     sel, sea, eea = kw.read_range_selection(None)
     pfn = ida_funcs.get_func(kw.get_screen_ea())
     if not sel and not pfn:
