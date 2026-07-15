@@ -135,6 +135,11 @@ AND_TABLE = {1: 0xff, 2: 0xffff, 4: 0xffffffff, 8: 0xffffffffffffffff, 16: 0xfff
 MSB_TABLE = {1: 0x80, 2: 0x8000, 4: 0x80000000, 8: 0x8000000000000000, 16: 0x80000000000000000000000000000000}
 
 
+def make_reg(serial,size):
+    mop = mop_t()
+    mop.make_reg(serial,size)
+    return mop
+
 # Hex-Rays mop equality checking
 def equal_bnot_cst(lo: mop_t, ro: mop_t, mop_size=None) -> bool:
     if (lo.t != mop_n) or (ro.t != mop_n):

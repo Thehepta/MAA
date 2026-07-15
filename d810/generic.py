@@ -177,6 +177,7 @@ class D810OllvmDispatcherInfo(GenericDispatcherInfo):
     def explore(self, blk: mblock_t) -> bool:
         self.reset()
         if not self._is_candidate_for_dispatcher_entry_block(blk):
+            print("blk:{0} _is_candidate_for_dispatcher_entry_block is False".format(blk.serial))
             return False
         self.entry_block = GenericDispatcherBlockInfo(blk)
         self.entry_block.parse()
@@ -192,28 +193,34 @@ class D810OllvmDispatcherInfo(GenericDispatcherInfo):
 
     def _is_candidate_for_dispatcher_entry_block(self, blk: mblock_t) -> bool:
         # blk must be a condition branch with one numerical operand
-        num_mop, mop_compared = self._get_comparison_info(blk)
-        if (num_mop is None) or (mop_compared is None):
-            return False
-            # Its fathers are not conditional branch with this mop
-        for father_serial in blk.predset:
-            father_blk = self.mba.get_mblock(father_serial)
-            father_num_mop, father_mop_compared = self._get_comparison_info(father_blk)
-            if (father_num_mop is not None) and (father_mop_compared is not None):
-                if mop_compared.equal_mops(father_mop_compared, hr.EQ_IGNSIZE):
-                    return False
-        return True
-
-    def _get_comparison_info(self, blk: mblock_t) -> Tuple[mop_t, mop_t]:
-        # We check if blk is a good candidate for dispatcher entry block: blk.tail must be a conditional branch
         if (blk.tail is None) or (blk.tail.opcode not in FLATTENING_JUMP_OPCODES):
-            return None, None
+            return False
             # One operand must be numerical
         num_mop, mop_compared = extract_num_mop(blk.tail)
         if num_mop is None or mop_compared is None:
-            return None, None
-        return num_mop, mop_compared
+            return False
 
+        #  被注释的代码: 判断分发器候选块的前驱是否满足某些条件,如果满足,说明当前块不是分发起
+        #  如果前驱是条件跳转,并且条件跳转使用的变量和当前块一样,说明不是分发起,因为这两个条件,是分发器内部块,
+        #  注释掉的原因是 这种情况是存在的,但是这个代码可能不会执行而已,而且这个判断删除掉无伤大雅
+        # for father_serial in blk.predset:
+        #     father_blk = self.mba.get_mblock(father_serial)
+        #     father_num_mop, father_mop_compared = self._get_comparison_info(father_blk)
+        #     if (father_num_mop is not None) and (father_mop_compared is not None):
+        #         if mop_compared.equal_mops(father_mop_compared, hr.EQ_IGNSIZE):
+        #             return False
+        return True
+
+
+    def fix_predset(self):
+        #修复 前驱是条件跳转,而且使用了和分发起一样的条件变量
+        predset = []
+        for dispatcher_father_serial in self.entry_block.blk.predset:
+            if dispatcher_father_serial in self.dispatcher_internal_blocks:
+                continue
+            else:
+                predset.append(dispatcher_father_serial)
+        return predset
 
 
     def is_part_of_dispatcher(self, block_info: GenericDispatcherBlockInfo) -> bool:
@@ -222,10 +229,12 @@ class D810OllvmDispatcherInfo(GenericDispatcherInfo):
             return False
         if (block_info.blk.tail is not None) and (block_info.blk.tail.opcode not in FLATTENING_JUMP_OPCODES):
             return False
+
+
         mba_count = self.mba.qty -1
         if mba_count < block_info.serial:
-            raise RuntimeError("self.mba.qty > block_info.serial")
-        if mba_count == block_info.serial:
+            raise RuntimeError("self.mba.qty -1 < block_info.serial")
+        if mba_count == block_info.serial: #寻找到结束块的情况
             return False
         return True
 

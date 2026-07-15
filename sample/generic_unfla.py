@@ -154,10 +154,15 @@ class ollvmflaSwitch(object):
             for path_cond in case.path_conds:
                 print(path_cond)
 
+class D810OllvmDispatcherInfo1(D810OllvmDispatcherInfo):
+
+    def _is_candidate_for_dispatcher_entry_block(self, blk: mblock_t) -> bool:
+        return True
 
 def UnFlaInfo(mba):
     # import pydevd_pycharm
     # pydevd_pycharm.settrace('localhost', port=31235, stdoutToServer=True, stderrToServer=True)
+    last_pass_nb_patch_done = 0
 
     # 找到前驱最多的块作为调度块
     dispatch_npred = -1
@@ -169,22 +174,23 @@ def UnFlaInfo(mba):
             dispatch_npred = npred
             dispatch_block = blk
 
+
+
     print("=" * 60)
     print(f"调度块: {dispatch_block.serial}")
     print(f"调度块前驱: {list(dispatch_block.predset)}")
 
-    # SwitchParse(mba)
 
-    dispatch_info = D810OllvmDispatcherInfo(mba)
+    dispatch_info = D810OllvmDispatcherInfo1(mba)
     if not dispatch_info.explore(dispatch_block):
         print("dispatch_info->explore is False")
-        return
+        return 0
 
     dispatcher_internal_blocks = [x.serial for x in dispatch_info.dispatcher_internal_blocks]
     print("dispatcher_internal_blocks:", dispatcher_internal_blocks)
     end_block_nums = set(Gdbi.blk for Gdbi in dispatch_info.dispatcher_exit_blocks)
     all_paths = find_all_paths_dfs(dispatch_info.entry_block.blk, end_block_nums)
-    print(len(all_paths))
+    print(all_paths)
     #
     unflaSwitch = ollvmflaSwitch()
     for paths in all_paths:
@@ -193,7 +199,8 @@ def UnFlaInfo(mba):
         unflaSwitch.add_case(unflacase)
     unflaSwitch.dump()
 
-    for dispatcher_father_serial in dispatch_block.predset:
+
+    for dispatcher_father_serial in  dispatch_info.fix_predset():
         father_tracker = tracker.MopTracker(unflaSwitch.switch_status, max_nb_block=100, max_path=100)
         father_tracker.reset()
         dispatcher_father_block = mba.get_mblock(dispatcher_father_serial)
@@ -201,9 +208,10 @@ def UnFlaInfo(mba):
         father_histories = father_tracker.search_backward(dispatcher_father_block, None,[dispatch_block.serial])
         if len(father_histories) > 1:
             nb_duplication, nb_change = duplicate_histories(father_histories)
+            last_pass_nb_patch_done = last_pass_nb_patch_done + nb_change
 
+    dispatcher_father_list_serial = [ x for x in dispatch_info.fix_predset()]
 
-    dispatcher_father_list_serial = [ x for x in dispatch_block.predset]
     for dispatcher_father_serial in dispatcher_father_list_serial:
         father_tracker = tracker.MopTracker(unflaSwitch.switch_status, max_nb_block=100, max_path=100)
         father_tracker.reset()
@@ -212,9 +220,6 @@ def UnFlaInfo(mba):
         father_histories = father_tracker.search_backward(dispatcher_father_block, None,[dispatch_block.serial])
         if len(father_histories) > 1:
             print("duplicate_histories after ",dispatcher_father_serial)
-
-            for his in father_histories:
-                print(his.history)
             continue
             # raise RuntimeError("duplicate_histories after unknow error")
         target_blk = unflaSwitch.get_real_blk(father_histories[0].get_defind_expr())
@@ -222,7 +227,9 @@ def UnFlaInfo(mba):
             continue
         print("make:{0} -> {1}:".format(dispatcher_father_block.serial,target_blk))
         change_way_block_successor(dispatcher_father_block, target_blk,dispatch_block.serial)
+        last_pass_nb_patch_done = last_pass_nb_patch_done+1
 
+    return last_pass_nb_patch_done
 
 def change_way_block_successor(blk: mblock_t, make_successor_serial: int, modify_successor_serial: int) -> bool:
     if change_1way_block_successor(blk, make_successor_serial):
@@ -252,7 +259,7 @@ def start():
     if not ida_bytes.is_code(F):
         return (False, "The selected range must start with an instruction")
     text = "unfla"
-    mmat = hr.MMAT_GLBOPT3
+    mmat = hr.MMAT_GLBOPT2
     if text is None and mmat is None:
         return (True, "Cancelled")
 
@@ -274,8 +281,29 @@ def start():
 
 
 
+
+class blkOPt(hr.optblock_t):
+
+    def func(self, blk):
+        print(">>>>>>start<<<<<<")
+        if blk.head is None:
+            return 0
+        if blk.mba.maturity != hr.MMAT_GLBOPT2:
+            return 0
+        optimizerret = UnFlaInfo(blk.mba)
+        print(">>>>>>end<<<<<<")
+        return optimizerret
+
+
+
 if __name__ == '__main__':  # 也可以直接在脚本里执行
     try:
         start()
     except Exception as e:
         traceback.print_exc()  # 直接打印完整堆栈到stderr
+
+    # try:
+    #     optimizer = blkOPt()
+    #     optimizer.install()
+    # except Exception as e:
+    #     logging.exception(e)

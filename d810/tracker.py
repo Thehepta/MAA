@@ -260,7 +260,7 @@ class MopTracker(object):
         cur_mop_tracker_nb_path += 1
         return new_mop_tracker
 
-    def search_backward(self, blk: mblock_t, ins: minsn_t, avoid_list=None, must_use_pred=None,
+    def search_backward(self, blk: mblock_t, ins: Optional[minsn_t|None], avoid_list=None, must_use_pred=None,
                         stop_at_first_duplication=False) -> List[SymbolicMopHistory]:
         logger.debug("Searching backward (reg): {0}".format([format_mop_t(x) for x in self._unresolved_mops]))
         logger.debug("Searching backward (mem): {0}".format([format_mop_t(x) for x in self._memory_unresolved_mops]))

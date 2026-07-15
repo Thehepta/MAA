@@ -123,7 +123,7 @@ class SymbolicMicroCodeEnvironment:
         new_env = SymbolicMicroCodeEnvironment()
         new_env.mop_define = self.mop_define.copy()
         new_env.mop_undefind =self.mop_undefind.copy()
-        if new_env.irdst is not None:
+        if self.irdst is not None:
             new_env.irdst = self.irdst.copy()
         new_env.his_path_cond = list(self.his_path_cond)
         return new_env

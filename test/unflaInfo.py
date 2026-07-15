@@ -212,12 +212,12 @@ def UnFlaInfo(mba):
     all_paths = find_all_paths_dfs(dispatch_info.entry_block.blk, end_block_nums)
     print("all_paths len",len(all_paths))
 
-    # unflaSwitch = ollvmflaSwitch()
-    # for paths in all_paths:
-    #     unflacase = ollvmflaCase(paths, blk.mba)
-    #     unflacase.parse()
-    #     unflaSwitch.add_case(unflacase)
-    # unflaSwitch.dump()
+    unflaSwitch = ollvmflaSwitch()
+    for paths in all_paths:
+        unflacase = ollvmflaCase(paths, blk.mba)
+        unflacase.parse()
+        unflaSwitch.add_case(unflacase)
+    unflaSwitch.dump()
     #
     # for dispatcher_father_serial in dispatch_block.predset:
     #     father_tracker = tracker.MopTracker(unflaSwitch.switch_status, max_nb_block=100, max_path=100)
