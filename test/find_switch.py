@@ -6,7 +6,7 @@ import ida_funcs
 import ida_ida
 import ida_range
 # from d810.emulator import MicroCodeInterpreter, MicroCodeEnvironment
-from d810 import tracker, utils
+from d810 import tracker, utils, Interpreter
 from d810.Environment import SymbolicMicroCodeEnvironment
 from d810.Expr import walk_expr_iter, ExprId, ExprInt, Expr
 from d810.ExprSimplifier import get_branch_condition, simplify, append_expr_if_not_in_list
@@ -17,7 +17,7 @@ from d810.hexrays_formatters import format_mop_t, format_minsn_t
 from d810.hexrays_helpers import append_mop_if_not_in_list, extract_num_mop, CONTROL_FLOW_OPCODES, \
     equal_mops_ignore_size, make_reg
 from d810.tracker import duplicate_histories
-from d810.utils import get_mop_name, enable_console_log
+from d810.utils import get_mop_name, enable_console_log, disable_console_log
 
 from ida_hexrays import mblock_t, mop_t, optblock_t, minsn_visitor_t, mbl_array_t,get_mreg_name
 import ida_hexrays as hr
@@ -28,7 +28,8 @@ import ida_dbg
 FLATTENING_JUMP_OPCODES = [hr.m_jnz, hr.m_jz, hr.m_jae, hr.m_jb, hr.m_ja, hr.m_jbe, hr.m_jg, hr.m_jge, hr.m_jl,
                            hr.m_jle]
 
-utils.enable_console_log(tracker.logger)
+
+disable_console_log(Interpreter.interpreter)
 
 
 class ollvmflaCase(object):
@@ -86,6 +87,7 @@ class ollvmflaSwitch(object):
 
         # 打印每条路径的符号执行结果
         for i, (path, env) in enumerate (path_environments):
+            print("path:",path)
             ofc = ollvmflaCase(path,path[-1],env.his_path_cond)
             self.cases.append(ofc)
             for his_cond in env.his_path_cond:
@@ -222,8 +224,8 @@ class ollvmflaSwitch(object):
 
 
 def UnFlaInfo(mba):
-    import pydevd_pycharm
-    pydevd_pycharm.settrace('localhost', port=31235, stdoutToServer=True, stderrToServer=True)
+    # import pydevd_pycharm
+    # pydevd_pycharm.settrace('localhost', port=31235, stdoutToServer=True, stderrToServer=True)
 
     ofs = ollvmflaSwitch(mba)
     ofs.explore()
@@ -276,7 +278,7 @@ def start():
     if not ida_bytes.is_code(F):
         return (False, "The selected range must start with an instruction")
     text = "unfla"
-    mmat = hr.MMAT_GLBOPT3
+    mmat = hr.MMAT_GLBOPT2
     if text is None and mmat is None:
         return (True, "Cancelled")
 
@@ -292,6 +294,8 @@ def start():
 
     # 使用D810的api解FLA混淆
     UnFlaInfo(mba)
+
+    mba.verify(True)
 
     # 将mba 的cfg显示出来
     # show_microcode_graph(mba, fn_name)

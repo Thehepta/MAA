@@ -187,6 +187,17 @@ def enable_console_log(logger):
     logger.propagate = False
     logger.setLevel(logging.DEBUG)
 
+def disable_console_log(logger):
+    """
+    动态关闭 console log（不重启 IDA）
+    """
+    for h in list(logger.handlers):
+        if isinstance(h, logging.StreamHandler):
+            logger.removeHandler(h)
+            h.close()
+    logger.propagate = True   # 可选：让父 logger 接管
+
+
 # 输出文件
 def enable_file_log(logger, file_path):
     if not any(isinstance(h, logging.FileHandler) for h in logger.handlers):
@@ -194,3 +205,22 @@ def enable_file_log(logger, file_path):
         logger.addHandler(handler)
     logger.propagate = False
     logger.setLevel(logging.DEBUG)
+
+
+def create_console_logger(name="my_logger", level=logging.DEBUG):
+    """快速创建一个控制台日志器"""
+    logger = logging.getLogger(name)
+    logger.setLevel(level)
+
+    # 避免重复添加 handler
+    if not any(isinstance(h, logging.StreamHandler) for h in logger.handlers):
+        handler = logging.StreamHandler()
+        formatter = logging.Formatter(
+            "%(asctime)s [%(levelname)s] %(message)s",
+            datefmt="%H:%M:%S"
+        )
+        handler.setFormatter(formatter)
+        logger.addHandler(handler)
+        logger.propagate = False
+
+    return logger

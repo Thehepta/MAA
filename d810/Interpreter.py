@@ -365,7 +365,7 @@ class SymbolicMicroCodeInterpreter:
         for arg in ins.d.f.args:
             data = self.eval(blk, arg, environment)
             args_list.append(data)
-        return ExprOp("call_{}".format(call_target), args_list, res_size)
+        return ExprOp("     call_{}".format(call_target), args_list, res_size)
 
     def _eval_call_helper(self, blk: mblock_t, ins: minsn_t, environment: SymbolicMicroCodeEnvironment) -> Optional[
         Expr]:
@@ -379,7 +379,7 @@ class SymbolicMicroCodeInterpreter:
         for arg in ins.d.f.args:
             data = self.eval(blk, arg, environment)
             args_list.append(data)
-        interpreter.debug("Call helper for {0}".format(helper_name))
+        interpreter.debug("     Call helper for {0}".format(helper_name))
         return ExprOp("call_{}".format(helper_name), args_list, res_size)
 
     def eval(self, cur_blk: Optional[mblock_t], mop: mop_t, environment: SymbolicMicroCodeEnvironment) -> Expr:
@@ -441,7 +441,7 @@ class SymbolicMicroCodeInterpreter:
             if environment is None:
                 interpreter.info("environment is None,Cannot eval_instruction")
                 return None
-            interpreter.info("Evaluating symbolically: '{0}'".format(format_minsn_t(ins)))
+            interpreter.info("Evaluating insn: '{0}'".format(format_minsn_t(ins)))
             if ins is None:
                 return None
             return self._eval_instruction_and_update_environment(blk, ins, environment)
