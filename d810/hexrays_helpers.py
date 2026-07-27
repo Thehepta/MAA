@@ -1,8 +1,12 @@
-
+import logging
+import ida_ida
+import idaapi
 from ida_hexrays import *
 from typing import List, Tuple
 from ida_hexrays import mop_d, mop_n, m_stx, m_ldx, m_xdu, m_xds, mop_z, mop_fn, mop_S, mop_v, EQ_IGNSIZE, mop_b, \
     mop_r, mop_f, mop_l, mop_a, mop_h, mop_str, mop_c, mop_p, mop_sc
+
+hexhelp_log = logging.getLogger('D810.hexhelp')
 
 
 OPCODES_INFO = {
@@ -81,7 +85,6 @@ OPCODES_INFO = {
     m_fdiv: {"name": "fdiv", "nb_operands": 2, "is_commutative": False},
 }
 
-
 MATURITY_TO_STRING_DICT = {
     MMAT_ZERO: "MMAT_ZERO",
     MMAT_GENERATED: "MMAT_GENERATED",
@@ -135,10 +138,11 @@ AND_TABLE = {1: 0xff, 2: 0xffff, 4: 0xffffffff, 8: 0xffffffffffffffff, 16: 0xfff
 MSB_TABLE = {1: 0x80, 2: 0x8000, 4: 0x80000000, 8: 0x8000000000000000, 16: 0x80000000000000000000000000000000}
 
 
-def make_reg(serial,size):
+def make_reg(serial, size):
     mop = mop_t()
-    mop.make_reg(serial,size)
+    mop.make_reg(serial, size)
     return mop
+
 
 # Hex-Rays mop equality checking
 def equal_bnot_cst(lo: mop_t, ro: mop_t, mop_size=None) -> bool:
@@ -193,6 +197,7 @@ def equal_mops_bypass_xdu(lo: mop_t, ro: mop_t) -> bool:
     if (ro.t == mop_d) and (ro.d.opcode == m_xdu):
         return equal_mops_bypass_xdu(lo, ro.d.l)
     return equal_mops_ignore_size(lo, ro)
+
 
 def equal_mops_ignore_size(lo: mop_t, ro: mop_t) -> bool:
     if (lo is None) or (ro is None):
@@ -339,6 +344,7 @@ def check_ins_have_same_operands(ins1: minsn_t, ins2: minsn_t, ignore_order=Fals
         return False
     return equal_mops_ignore_size(ins1.l, ins2.r) and equal_mops_ignore_size(ins1.r, ins2.l)
 
+
 # 如果等于-1 说明在列表中没有查找到mop
 def get_mop_index(searched_mop: mop_t, mop_list) -> int:
     for i, test_mop in enumerate(mop_list):
@@ -346,7 +352,8 @@ def get_mop_index(searched_mop: mop_t, mop_list) -> int:
             return i
     return -1
 
-#如果mop 不在列表中则添加
+
+# 如果mop 不在列表中则添加
 def append_mop_if_not_in_list(mop: mop_t, mop_list) -> bool:
     mop_index = get_mop_index(mop, mop_list)
     if mop_index == -1:
@@ -363,3 +370,118 @@ def get_blk_index(searched_blk: mblock_t, blk_list: List[mblock_t]) -> int:
         return -1
 
 
+class MicroMopFactory:
+    """
+    微码操作数工厂类 - 通过数字索引直接创建寄存器 mop_t
+    支持 ARM、AArch64、x86 等架构
+    """
+
+    # === 类级别的缓存变量（懒加载） ===
+    size = None
+    _initialized = False
+    _arch_name = None
+    # === 架构寄存器映射表：数字 -> 寄存器名称 ===
+    # 这样你可以通过 r(0), r(1), r(2) 直接获取
+    _REG_MAP = {
+        # AArch64 (64位)
+        'aarch64': {
+            "x0": 0x8, "x1": 0x10, "x2": 0x18, "x3": 0x20,
+            "x4": 0x28, "x5": 0x30, "x6": 0x38, "x7": 0x40,
+            "x8": 0x48, "x9": 0x50, "x10": 0x58, "x11": 0x60,
+            "x12": 0x68, "x13": 0x70, "x14": 0x78, "x15": 0x80,
+            "x16": 0x88, "x17": 0x90, "x18": 0x98, "x19": 0xa0,
+            "x20": 0xa8, "x21": 0xb0, "x22": 0xb8, "x23": 0xc0,
+            "x24": 0xc8, "x25": 0xd0, "x26": 0xd8, "x27": 0xe0,
+            "x28": 0xe8, "x29": 0xf0, "x30": 0xf8, "xzr": 0x100,
+            "sp": 0x108, "t0": 0x110, "t1": 0x120, "t2": 0x130,
+            "off": 0x140, "d0": 0x150, "d1": 0x160, "d2": 0x170,
+            "d3": 0x180, "d4": 0x190, "d5": 0x1a0, "d6": 0x1b0,
+            "d7": 0x1c0, "d8": 0x1d0, "d9": 0x1e0, "d10": 0x1f0,
+            "d11": 0x200, "d12": 0x210, "d13": 0x220, "d14": 0x230,
+            "d15": 0x240, "d16": 0x250, "d17": 0x260, "d18": 0x270,
+            "d19": 0x280, "d20": 0x290, "d21": 0x2a0, "d22": 0x2b0,
+            "d23": 0x2c0, "d24": 0x2d0, "d25": 0x2e0, "d26": 0x2f0,
+            "d27": 0x300, "d28": 0x310, "d29": 0x320, "d30": 0x330,
+            "d31": 0x340, "cs": 0x350,
+
+        },
+        # ARM (32位)
+        'arm': {
+            "x0": 0x8, "x1": 0x10, "x2": 0x18, "x3": 0x20,
+            "x4": 0x28, "x5": 0x30, "x6": 0x38, "x7": 0x40,
+            "x8": 0x48, "x9": 0x50, "x10": 0x58, "x11": 0x60,
+            "x12": 0x68, "x13": 0x70, "x14": 0x78, "x15": 0x80,
+            "x16": 0x88, "x17": 0x90, "x18": 0x98, "x19": 0xa0,
+            "x20": 0xa8, "x21": 0xb0, "x22": 0xb8, "x23": 0xc0,
+            "x24": 0xc8, "x25": 0xd0, "x26": 0xd8, "x27": 0xe0,
+            "x28": 0xe8, "x29": 0xf0, "x30": 0xf8, "xzr": 0x100,
+            "sp": 0x108, "t0": 0x110, "t1": 0x120, "t2": 0x130,
+            "off": 0x140, "d0": 0x150, "d1": 0x160, "d2": 0x170,
+            "d3": 0x180, "d4": 0x190, "d5": 0x1a0, "d6": 0x1b0,
+            "d7": 0x1c0, "d8": 0x1d0, "d9": 0x1e0, "d10": 0x1f0,
+            "d11": 0x200, "d12": 0x210, "d13": 0x220, "d14": 0x230,
+            "d15": 0x240, "d16": 0x250, "d17": 0x260, "d18": 0x270,
+            "d19": 0x280, "d20": 0x290, "d21": 0x2a0, "d22": 0x2b0,
+            "d23": 0x2c0, "d24": 0x2d0, "d25": 0x2e0, "d26": 0x2f0,
+            "d27": 0x300, "d28": 0x310, "d29": 0x320, "d30": 0x330,
+            "d31": 0x340, "cs": 0x350,
+        },
+        # x86/x64
+        'x86': {
+
+        }
+    }
+
+    @classmethod
+    def _initialize(cls):
+        """懒加载：只在第一次调用时初始化"""
+        if cls._initialized:
+            return
+        proc_name = idaapi.inf_get_procname()
+        is_64 = ida_ida.inf_is_64bit()
+        if is_64 is True:
+            cls.size = 8
+        else:
+            cls.size = 4
+        if proc_name in ("metapc", "x86-64"):
+            cls._arch_name = "x64" if is_64 else "x86"
+        elif proc_name in ("ARM", "aarch64"):
+            cls._arch_name = "aarch64" if is_64 else "arm32"
+        elif proc_name in ("mips", "mips64"):
+            cls._arch_name = "mips64" if is_64 else "mips32"
+        elif proc_name in ("riscv", "riscv64"):
+            cls._arch_name = "riscv64" if is_64 else "riscv32"
+        elif proc_name in ("ppc", "ppc64"):
+            cls._arch_name = "ppc64" if is_64 else "ppc32"
+
+        cls._initialized = True
+
+    @classmethod
+    def make_reg(cls, reg_name,size = None) -> mop_t:
+        """
+        根据数字索引获取当前架构对应的寄存器名称
+        使用 _REG_MAP 映射表
+        """
+        if size is None:
+            size = cls.size
+        cls._initialize()
+        new_mop = mop_t()
+        reg_index = cls.get_reg_index(reg_name)
+        new_mop.make_reg(reg_index,size)
+        return new_mop
+
+    @classmethod
+    def get_reg_index(cls, reg_name) -> int:
+        cls._initialize()
+        reg_map = cls._REG_MAP.get(cls._arch_name, {})
+        reg_index = reg_map.get(reg_name)
+        return reg_index
+
+
+    @classmethod
+    def dump(cls,logger=None):
+        log = logger if logger is not None else hexhelp_log
+        log.debug("")
+        print("proc_name:",idaapi.inf_get_procname())
+        print("arch_name:",cls._arch_name)
+        print("bit:",ida_ida.inf_is_64bit())

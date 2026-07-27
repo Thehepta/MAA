@@ -14,7 +14,7 @@ from d810.generic import GenericDispatcherInfo
 from d810.generic import GenericDispatcherBlockInfo
 from d810.hexrays_formatters import format_mop_t, format_minsn_t
 from d810.hexrays_helpers import append_mop_if_not_in_list, extract_num_mop, CONTROL_FLOW_OPCODES, \
-    equal_mops_ignore_size, make_reg
+    equal_mops_ignore_size, make_reg, MicroMopFactory
 from d810.tracker import duplicate_histories
 from d810.utils import get_mop_name, enable_console_log, disable_console_log
 
@@ -291,7 +291,7 @@ def start():
     if not ida_bytes.is_code(F):
         return (False, "The selected range must start with an instruction")
     text = "unfla"
-    mmat = hr.MMAT_GLBOPT2
+    mmat = hr.MMAT_CALLS
     if text is None and mmat is None:
         return (True, "Cancelled")
 
@@ -304,11 +304,23 @@ def start():
     hf = hr.hexrays_failure_t()
     ml = hr.mlist_t()
     mba = hr.gen_microcode(mbr, hf, ml, hr.DECOMP_WARNINGS, mmat)
+    blk1 = mba.get_mblock(1)
+    x0 = MicroMopFactory.make_reg("x21")
+    num_mop = hr.mop_t()
+    num_mop.make_number(0, 8)
+    first_ins = hr.minsn_t(blk1.tail)
+    blk1.make_nop(first_ins)
+    first_ins.l = num_mop
+    first_ins.d = x0
+    first_ins.opcode = hr.m_mov
+    print(first_ins.dstr())
+    blk1.insert_into_block(first_ins, blk1.tail.prev)
 
+    blk1.mba.verify(True)
     # 使用D810的api解FLA混淆
-    optimizer = UnFlaInfo(mba)
-    print("optimizer:",optimizer)
-    mba.verify(True)
+    # optimizer = UnFlaInfo(mba)
+    # print("optimizer:",optimizer)
+    # mba.verify(True)
     # optimizer = UnFlaInfo(mba)
     # print("optimizer:",optimizer)
     # mba.verify(True)
@@ -316,31 +328,51 @@ def start():
     # 将mba 的cfg显示出来
     show_microcode_graph(mba, fn_name)
 
+First = 1
 
 class blkOPt(hr.optblock_t):
 
     def func(self, blk):
         print(">>>>>>start<<<<<<")
+        optimizer = 0
         if blk.head is None:
             # print("blk head is None", blk.serial)
-            return 0
+            return optimizer
         # print(blk.mba.maturity, hex(blk.head.ea), blk.serial)
         if blk.mba.maturity != hr.MMAT_GLBOPT2:
-            return 0
-        optimizer = UnFlaInfo(blk.mba)
+            return optimizer
+
+        if blk.mba.maturity != hr.MMAT_CALLS:
+            global  First
+            if First == 1:
+                First = 0
+                if blk.serial == 1:
+                    x0 = MicroMopFactory.make_reg("x21",8)
+                    num_mop = hr.mop_t()
+                    num_mop.make_number(0, 8)
+                    first_ins = hr.minsn_t(blk.tail)
+                    blk.make_nop(first_ins)
+                    first_ins.l = num_mop
+                    first_ins.d = x0
+                    first_ins.opcode = hr.m_mov
+                    blk.insert_into_block(first_ins, blk.tail.prev)
+                    optimizer = optimizer + 1
+                # blk.insert_into_block(goto_ins, blk.tail)
+            # return 0
+        # optimizer = UnFlaInfo(blk.mba)
         if blk.mba.verify(True):
             return optimizer
         return 0
 
 
 if __name__ == '__main__':  # 也可以直接在脚本里执行
-    try:
-        start()
-    except Exception as e:
-        traceback.print_exc()  # 直接打印完整堆栈到stderr
-
     # try:
-    #     optimizer = blkOPt()
-    #     optimizer.install()
+    #     start()
     # except Exception as e:
     #     traceback.print_exc()  # 直接打印完整堆栈到stderr
+
+    try:
+        optimizer = blkOPt()
+        optimizer.install()
+    except Exception as e:
+        traceback.print_exc()  # 直接打印完整堆栈到stderr
