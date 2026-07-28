@@ -347,15 +347,15 @@ class blkOPt(hr.optblock_t):
             if First == 1:
                 First = 0
                 if blk.serial == 1:
-                    x0 = MicroMopFactory.make_reg("x21",8)
+                    x0 = MicroMopFactory.make_reg("x0",8)
                     num_mop = hr.mop_t()
                     num_mop.make_number(0, 8)
-                    first_ins = hr.minsn_t(blk.tail)
+                    first_ins = hr.minsn_t(blk.head)
                     blk.make_nop(first_ins)
                     first_ins.l = num_mop
                     first_ins.d = x0
                     first_ins.opcode = hr.m_mov
-                    blk.insert_into_block(first_ins, blk.tail.prev)
+                    blk.insert_into_block(first_ins, blk.head)
                     optimizer = optimizer + 1
                 # blk.insert_into_block(goto_ins, blk.tail)
             # return 0

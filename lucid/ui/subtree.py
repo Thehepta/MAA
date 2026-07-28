@@ -40,7 +40,9 @@ class MicroSubtreeView(ida_graph.GraphViewer):
         super(MicroSubtreeView, self).__init__(self.WINDOW_TITLE, True)
         self.insn = insn
         self._populated = False
-
+        self.show_mop_info_id = self.AddCommand("show mop info ", "")
+        self.select_node = -1
+        self.mop_list = {}
     def show(self):
         self.Show()
         ida_kernwin.set_dock_pos(self.WINDOW_TITLE, "Microcode Explorer", ida_kernwin.DP_INSIDE)
@@ -78,6 +80,7 @@ class MicroSubtreeView(ida_graph.GraphViewer):
             text += " (%s)" % get_mcode_name(mop.d.opcode)
         text += ' \n ' + mop._print() + " "
         node_id = self.AddNode(text)
+        self.mop_list[node_id]=mop
         self.AddEdge(parent, node_id)
 
         # result of another instruction
@@ -131,3 +134,14 @@ class MicroSubtreeView(ida_graph.GraphViewer):
 
     def OnGetText(self, node_id):
         return (self._nodes[node_id], self._node_color)
+
+    def OnCommand(self, cmd_id):
+        if self.select_node <= 0:
+            print("not support show mop info")
+            return
+        if cmd_id == self.show_mop_info_id:
+            mop = self.mop_list[self.select_node]
+            print("node", mop.dstr())
+
+    def OnClick(self, node_id):
+        self.select_node = node_id

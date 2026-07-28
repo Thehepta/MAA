@@ -156,7 +156,7 @@ def eva_blks(start_block, microcode_environment: SymbolicMicroCodeEnvironment,
 
     return microcode_environment
 
-def show_insn_info(ins):
+def show_insn_info(ins,blk):
 
     print("op:{0}     type:{1} content:{2}".format(opcode_to_string(ins.opcode), type(ins.opcode), ins.opcode))
     print("insn.l:{0} type:{1} content:{2}".format(ins.l.dstr(), mop_type_to_string(ins.l.t),

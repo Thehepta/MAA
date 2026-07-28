@@ -654,13 +654,14 @@ class InsnSubTree(ida_kernwin.action_handler_t):
 
 class InsnInfo(ida_kernwin.action_handler_t):
 
-    def __init__(self, parent,ins_token):
+    def __init__(self, parent,ins_token,ins_blk):
         ida_kernwin.action_handler_t.__init__(self)
         self.parent = parent
         self.ins_token = ins_token
+        self.ins_blk = ins_blk
 
     def activate(self, ctx):
-        show_insn_info( self.ins_token.insn)
+        show_insn_info(self.ins_token.insn, self.ins_blk)
 
     def update(self, ctx):
         return ida_kernwin.AST_ENABLE_ALWAYS
@@ -758,10 +759,13 @@ class MicrocodeView(ida_kernwin.simplecustviewer_t):
         if not ins_token:
             return False
 
+        ins_blk = self.model.mtext.get_block_for_line(self.model.current_line)
+        # line_num, _, _ = self.model.current_position
+        # ins_blk = self.model.mtext.get_block_for_line_num(line_num)
         desc = ida_kernwin.action_desc_t(None, 'View current insn subtree', InsnSubTree(self,ins_token))
         ida_kernwin.attach_dynamic_action_to_popup(form, popup_handle, desc, None)
 
-        desc1 = ida_kernwin.action_desc_t(None, 'View current insn info', InsnInfo(self,ins_token))
+        desc1 = ida_kernwin.action_desc_t(None, 'View current insn info', InsnInfo(self,ins_token,ins_blk.blk))
         ida_kernwin.attach_dynamic_action_to_popup(form, popup_handle, desc1, None)
         return True
 
