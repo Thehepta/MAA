@@ -334,13 +334,13 @@ class blkOPt(hr.optblock_t):
 
 
 if __name__ == '__main__':  # 也可以直接在脚本里执行
-    try:
-        start()
-    except Exception as e:
-        traceback.print_exc()  # 直接打印完整堆栈到stderr
-
     # try:
-    #     optimizer = blkOPt()
-    #     optimizer.install()
+    #     start()
     # except Exception as e:
     #     traceback.print_exc()  # 直接打印完整堆栈到stderr
+
+    try:
+        optimizer = blkOPt()
+        optimizer.install()
+    except Exception as e:
+        traceback.print_exc()  # 直接打印完整堆栈到stderr

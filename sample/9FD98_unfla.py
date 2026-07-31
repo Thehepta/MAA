@@ -83,6 +83,7 @@ class ollvmflaSwitch(object):
         dispatch_blk = self.get_dispath_blk()
         if dispatch_blk == -1:
             return False
+
         path_environments = self.find_all_paths_from_dispatch(dispatch_blk)
         print(f"\n找到 {len(path_environments)} 条路径")
         # if len(path_environments) < 5:
@@ -108,8 +109,6 @@ class ollvmflaSwitch(object):
             for blk_idx in range(self.mba.qty):
                 blk = self.mba.get_mblock(blk_idx)
                 npred = blk.npred()
-                # if npred < 5:
-                #     continue
                 if dispatch_npred < npred:
                     dispatch_npred = npred
                     dispatch_block = blk

@@ -83,6 +83,7 @@ class ollvmflaSwitch(object):
         dispatch_blk = self.get_dispath_blk()
         if dispatch_blk == -1:
             return False
+
         path_environments = self.find_all_paths_from_dispatch(dispatch_blk)
         print(f"\n找到 {len(path_environments)} 条路径")
         # if len(path_environments) < 5:
@@ -108,8 +109,8 @@ class ollvmflaSwitch(object):
             for blk_idx in range(self.mba.qty):
                 blk = self.mba.get_mblock(blk_idx)
                 npred = blk.npred()
-                # if npred < 5:
-                #     continue
+                if npred < 6:
+                    continue
                 if dispatch_npred < npred:
                     dispatch_npred = npred
                     dispatch_block = blk
@@ -354,13 +355,14 @@ class blkOPt(hr.optblock_t):
 
 
 if __name__ == '__main__':  # 也可以直接在脚本里执行
-    # try:
-    #     start()
-    # except Exception as e:
-    #     traceback.print_exc()  # 直接打印完整堆栈到stderr
-
-    try:
-        optimizer = blkOPt()
-        optimizer.install()
-    except Exception as e:
-        traceback.print_exc()  # 直接打印完整堆栈到stderr
+    if 0:
+        try:
+            start()
+        except Exception as e:
+            traceback.print_exc()  # 直接打印完整堆栈到stderr
+    else:
+        try:
+            optimizer = blkOPt()
+            optimizer.install()
+        except Exception as e:
+            traceback.print_exc()  # 直接打印完整堆栈到stderr
