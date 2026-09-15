@@ -17,11 +17,10 @@ def graphviz(mba,output_path):
     dot.attr(splines='ortho')
     for blk_idx in range(mba.qty):
         blk = mba.get_mblock(blk_idx)
-        if blk.head == None:
-            continue
-        lines = []
-
-        lines.append("{0}:{1}".format(blk_idx, hex(blk.head.ea)))
+        if blk.head is None:
+            lines = ["{0}:None".format(blk_idx)]
+        else:
+            lines = ["{0}:{1}".format(blk_idx, hex(blk.head.ea))]
         insn = blk.head
         while insn:
             lines.append(insn.dstr())
@@ -35,11 +34,6 @@ def graphviz(mba,output_path):
         blk = mba.get_mblock(blk_idx)
         succset = [x for x in blk.succset]
         for succ in succset:
-            blk_succ = mba.get_mblock(succ)
-            if blk_succ.head is None:
-                continue
-            if blk.head is None:
-                continue
             dot.edge(str(blk_idx), str(succ))
 
     # dot.render("/home/chic/graph_with_contentgraph_with_content", format="png")

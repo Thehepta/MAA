@@ -24,6 +24,7 @@ import ida_kernwin as kw
 import traceback
 import ida_dbg
 from lucid.ui.graph import show_microcode_graph
+from lucid.ui.graph import graphviz
 
 FLATTENING_JUMP_OPCODES = [hr.m_jnz, hr.m_jz, hr.m_jae, hr.m_jb, hr.m_ja, hr.m_jbe, hr.m_jg, hr.m_jge, hr.m_jl,
                            hr.m_jle]
@@ -109,13 +110,15 @@ class ollvmflaSwitch(object):
             for blk_idx in range(self.mba.qty):
                 blk = self.mba.get_mblock(blk_idx)
                 npred = blk.npred()
+                if npred < 5:
+                    continue
                 if dispatch_npred < npred:
                     dispatch_npred = npred
                     dispatch_block = blk
             if dispatch_block == None:
                 return -1
-            print("found dispatch:",self.dis_patch_blk)
             self.dis_patch_blk = dispatch_block
+            print("found dispatch:",self.dis_patch_blk.serial)
 
         return self.dis_patch_blk
 
@@ -252,8 +255,6 @@ def UnFlaInfo(mba):
         father_tracker = tracker.MopTracker(ofs.switch_status, max_nb_block=100, max_path=100)
         father_tracker.reset()
         dispatcher_father_block = mba.get_mblock(dispatcher_father_serial)
-        print("MopTracker block:{0}".format(dispatcher_father_serial))
-
         father_histories = father_tracker.search_backward(dispatcher_father_block, None, [ofs.get_dispath_blk().serial])
         if len(father_histories) == 1:
             if father_histories[0].is_resolved() is True:
@@ -262,9 +263,9 @@ def UnFlaInfo(mba):
                 if target_blk != -1:
                     change_way_block_successor(dispatcher_father_block,target_blk,ofs.get_dispath_blk().serial)
                     optimizer = optimizer + 1
-                print("target_blk:", target_blk)
+                    print("make MopTracker block:{0} -> target_blk:{1}".format(dispatcher_father_serial , target_blk))
             else:
-                print("can not is_resolved")
+                print("MopTracker block:{0} can not is_resolved".format(dispatcher_father_serial))
         else:
             print("father_block:{0} is  len = 0".format(dispatcher_father_serial))
 
@@ -305,7 +306,8 @@ def start():
     mba = hr.gen_microcode(mbr, hf, ml, hr.DECOMP_WARNINGS, mmat)
 
     # 使用D810的api解FLA混淆
-    optimizer = UnFlaInfo(mba)
+    optimizer = \
+        UnFlaInfo(mba)
     # print("optimizer:",optimizer)
     # mba.verify(True)
     # optimizer = UnFlaInfo(mba)
@@ -315,19 +317,35 @@ def start():
     # 将mba 的cfg显示出来
     show_microcode_graph(mba, fn_name)
 
-First = 1
+optimizerCount = 1
 
 class blkOPt(hr.optblock_t):
 
-    def func(self, blk):
-        print(">>>>>>start<<<<<<")
+    def __init__(self):
+        hr.optblock_t.__init__(self)
+        self.optimizerCounter = 0
+        self.count = 5
+    def filter(self,blk):
         optimizer = 0
-        if blk.head is None:
+        if blk.head is None or blk.mba.maturity != hr.MMAT_GLBOPT2:
             # print("blk head is None", blk.serial)
             return optimizer
-        # print(blk.mba.maturity, hex(blk.head.ea), blk.serial)
-        if blk.mba.maturity != hr.MMAT_GLBOPT2:
+        if blk.serial != 1:
             return optimizer
+        self.optimizerCounter = self.optimizerCounter + 1
+
+
+
+    def func(self, blk):
+        optimizer = 0
+        if blk.head is None or blk.mba.maturity != hr.MMAT_GLBOPT2:
+            # print("blk head is None", blk.serial)
+            return optimizer
+        if blk.serial != 1:
+            return optimizer
+        self.optimizerCounter = self.optimizerCounter + 1
+        print("======= optimizerCounter : {0} ======".format(self.optimizerCounter))
+        # print(blk.mba.maturity, hex(blk.head.ea), blk.serial)
 
         # if blk.mba.maturity != hr.MMAT_CALLS:
         #     global  First
@@ -346,20 +364,25 @@ class blkOPt(hr.optblock_t):
         #             optimizer = optimizer + 1
                 # blk.insert_into_block(goto_ins, blk.tail)
             # return 0
+        # import pydevd_pycharm
+        # pydevd_pycharm.settrace('localhost', port=31235, stdoutToServer=True, stderrToServer=True)
+        # graphviz(blk.mba,"/home/chic/graphviz/graph_984b8_{0}.dot".format(self.optimizerCounter))
         optimizer = UnFlaInfo(blk.mba)
+        print("optimizer:",optimizer)
         if blk.mba.verify(True):
             return optimizer
         return 0
 
 
 if __name__ == '__main__':  # 也可以直接在脚本里执行
-    # try:
-    #     start()
-    # except Exception as e:
-    #     traceback.print_exc()  # 直接打印完整堆栈到stderr
-
-    try:
-        optimizer = blkOPt()
-        optimizer.install()
-    except Exception as e:
-        traceback.print_exc()  # 直接打印完整堆栈到stderr
+    if 1:
+        try:
+            start()
+        except Exception as e:
+            traceback.print_exc()  # 直接打印完整堆栈到stderr
+    else:
+        try:
+            optimizer = blkOPt()
+            optimizer.install()
+        except Exception as e:
+            traceback.print_exc()  # 直接打印完整堆栈到stderr

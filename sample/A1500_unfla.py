@@ -95,7 +95,7 @@ class ollvmflaSwitch(object):
                 his_exprs = list(walk_expr_iter(his_cond))
                 for expr in his_exprs:
                     if expr.is_mopid():
-                        append_mop_if_not_in_list(expr.get_mop(), self.switch_status)
+                        append_mop_if_not_in_list(expr.get_Zmop(), self.switch_status)
 
         for mop in self.switch_status:
             print(mop.dstr())
