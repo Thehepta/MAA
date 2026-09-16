@@ -17,7 +17,7 @@ from ida_hexrays import (
 )
 
 from d810.Expr import (
-    Expr, ExprId, ExprOp, ExprCond,
+    Expr, ExprId, ExprOp, ExprCond, walk_expr_iter,
 )
 from d810.ExprSimplifier import simplify, append_expr_if_not_in_list
 from d810.hexrays_formatters import format_mop_t, mop_type_to_string
@@ -70,10 +70,6 @@ class MopExprId(Expr):
         if self in mapping:
             return mapping[self]
         return self
-
-
-
-
 
 class SymbolicMicroCodeEnvironment:
     """
@@ -145,7 +141,7 @@ class SymbolicMicroCodeEnvironment:
         else:
             self.his_path_cond.append(simplify(ExprOp('lnot', [cond], 1)))
 
-    def defineExpr(self, mopExpr: MopExprId, value: Expr):
+    def define_expr(self, mopExpr: MopExprId, value: Expr):
         self.mop_define[mopExpr] = value
 
     def define(self, mop: mop_t, value: Expr):
@@ -184,6 +180,32 @@ class SymbolicMicroCodeEnvironment:
             return mop_id
 
         return None
+
+    def does_only_need(self, father_env:SymbolicMicroCodeEnvironment) -> bool:
+
+        if self.mop_undefind:
+            for mop_expr in self.mop_undefind:
+                mop = mop_expr.get_mop()
+                # 在之前累积的环境中查找
+                found_in_define = father_env.lookup(mop, create_undefind_symbol=False) is not None
+                found_in_undefind = any(equal_mops_ignore_size(h_mop_expr.get_mop(), mop) for h_mop_expr in
+                                        father_env.mop_undefind)
+
+                # 如果这个未定义变量在之前环境中找不到，终止这条路径
+                if not (found_in_define or found_in_undefind):
+                    return False
+            return True
+        return False
+
+    def get_path_cond_mopid(self):
+        list_mopid = []
+        for his_cond in self.his_path_cond:
+            his_exprs = list(walk_expr_iter(his_cond))
+            for expr in his_exprs:
+                if expr.is_mopid():
+                    list_mopid.append(expr.get_mop())
+                    # append_mop_if_not_in_list(expr.get_mop(), self.switch_status)
+        return list_mopid
 
     def dump(self,logger=None):
         """

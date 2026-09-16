@@ -16,7 +16,7 @@ from d810.hexrays_formatters import format_mop_t, format_minsn_t
 from d810.hexrays_helpers import append_mop_if_not_in_list, extract_num_mop, CONTROL_FLOW_OPCODES, \
     equal_mops_ignore_size, make_reg, MicroMopFactory
 from d810.tracker import duplicate_histories
-from d810.utils import get_mop_name, enable_console_log, disable_console_log
+from d810.utils import get_mop_name, enable_console_log, disable_console_log, get_all_possibles_values
 
 from ida_hexrays import mblock_t, mop_t, optblock_t, minsn_visitor_t, mbl_array_t, get_mreg_name
 import ida_hexrays as hr
@@ -31,6 +31,7 @@ FLATTENING_JUMP_OPCODES = [hr.m_jnz, hr.m_jz, hr.m_jae, hr.m_jb, hr.m_ja, hr.m_j
 
 disable_console_log(Interpreter.interpreter)
 
+interpreter = SymbolicMicroCodeInterpreter()
 
 class ollvmflaCase(object):
 
@@ -56,17 +57,44 @@ class ollvmflaSwitch(object):
 
     def __init__(self, mba):
         self.switch_status = []
-        self.cases = []
         self.mba = mba
         self.dis_patch_blk = None
         self.dispatcher_internal_blocks = []
         self.dispatcher_exit_blocks = []
 
-    def get_real_blk(self, mop_def_list):
-        for case in self.cases:
-            if case.is_satisfy(mop_def_list) is True:
-                return case.dst_blk
-        return -1
+    def explore(self):
+        dispatch_blk = self.get_dispath_blk()
+        if dispatch_blk == -1:
+            return False
+        if not self._is_candidate_for_dispatcher_entry_block(dispatch_blk):
+            print("blk:{0} _is_candidate_for_dispatcher_entry_block is False".format(dispatch_blk.serial))
+            return False
+
+        initial_env = SymbolicMicroCodeEnvironment()
+        interpreter.eval_blk(dispatch_blk, initial_env)
+
+        path_environments = self.find_all_paths_from_dispatch(dispatch_blk)
+        print(f"found path: {len(path_environments)}")
+
+        # 打印每条路径的符号执行结果
+        for i, (path, env) in enumerate(path_environments):
+            list_mop = env.get_path_cond_mopid()
+            for mop in list_mop:
+                append_mop_if_not_in_list(mop, self.switch_status)
+
+        for mop in self.switch_status:
+            print(mop.dstr())
+        return True
+
+    def _is_candidate_for_dispatcher_entry_block(self, blk: mblock_t) -> bool:
+        # blk must be a condition branch with one numerical operand
+        if (blk.tail is None) or (blk.tail.opcode not in FLATTENING_JUMP_OPCODES):
+            return False
+            # One operand must be numerical
+        num_mop, mop_compared = extract_num_mop(blk.tail)
+        if num_mop is None or mop_compared is None:
+            return False
+        return True
 
     def dump(self):
         print("ollvmflaSwitch dump")
@@ -74,33 +102,7 @@ class ollvmflaSwitch(object):
             name = get_mop_name(mop_used)
             print("switch status:  {0}".format(name))
 
-        for case in self.cases:
-            print(case.dst_blk)
-            for path_cond in case.path_conds:
-                print(path_cond)
 
-    def explore(self):
-        dispatch_blk = self.get_dispath_blk()
-        if dispatch_blk == -1:
-            return False
-
-        path_environments = self.find_all_paths_from_dispatch(dispatch_blk)
-        print(f"found path: {len(path_environments)}")
-        # if len(path_environments) < 5:
-        #     return False
-        # 打印每条路径的符号执行结果
-        for i, (path, env) in enumerate(path_environments):
-            ofc = ollvmflaCase(path, path[-1], env.his_path_cond)
-            self.cases.append(ofc)
-            for his_cond in env.his_path_cond:
-                his_exprs = list(walk_expr_iter(his_cond))
-                for expr in his_exprs:
-                    if expr.is_mopid():
-                        append_mop_if_not_in_list(expr.get_mop(), self.switch_status)
-
-        for mop in self.switch_status:
-            print(mop.dstr())
-        return True
 
     def get_dispath_blk(self):
         if self.dis_patch_blk is None:
@@ -190,19 +192,8 @@ class ollvmflaSwitch(object):
 
                     # 检查终止条件：当前块的未定义变量是否能在之前累积的环境中找到
                     can_terminate = False
-                    if block_env.mop_undefind:  # 当前块的未定义变量
-                        for mop_expr in block_env.mop_undefind:
-                            mop = mop_expr.get_mop()
-                            # 在之前累积的环境中查找
-                            found_in_define = prev_env.lookup(mop, create_undefind_symbol=False) is not None
-                            found_in_undefind = any(equal_mops_ignore_size(h_mop_expr.get_mop(), mop) for h_mop_expr in
-                                                    prev_env.mop_undefind)
-
-                            # 如果这个未定义变量在之前环境中找不到，终止这条路径
-                            if not (found_in_define or found_in_undefind):
-                                can_terminate = True
-                                break
-
+                    if not block_env.does_only_need(prev_env):
+                        can_terminate = True
                     if block_env.irdst.is_cond() is False:
                         can_terminate = True
                     # 如果终止了，不再继续向下
@@ -246,29 +237,33 @@ def UnFlaInfo(mba):
         dispatcher_father_block = mba.get_mblock(dispatcher_father_serial)
         father_histories = father_tracker.search_backward(dispatcher_father_block, None, [ofs.get_dispath_blk().serial])
         if len(father_histories) > 1:
+            father_histories_cst = get_all_possibles_values(father_histories,
+                                                            ofs.switch_status,
+                                                            verbose=False)
+            print(father_histories_cst)
             nb_duplication, nb_change = duplicate_histories(father_histories)
             optimizer = optimizer+nb_change;
             print("fix father_block:{0} is  multiple branches".format(dispatcher_father_serial))
-
-    dispatcher_father_serial_list = [x for x in ofs.get_dispath_blk().predset]
-
-    for dispatcher_father_serial in dispatcher_father_serial_list:
-        father_tracker = tracker.MopTracker(ofs.switch_status, max_nb_block=100, max_path=100)
-        father_tracker.reset()
-        dispatcher_father_block = mba.get_mblock(dispatcher_father_serial)
-        father_histories = father_tracker.search_backward(dispatcher_father_block, None, [ofs.get_dispath_blk().serial])
-        if len(father_histories) == 1:
-            if father_histories[0].is_resolved() is True:
-                father_histories[0]._execute_microcode()
-                target_blk = ofs.get_real_blk(father_histories[0]._current_environment.mop_define)
-                if target_blk != -1:
-                    change_way_block_successor(dispatcher_father_block,target_blk,ofs.get_dispath_blk().serial)
-                    optimizer = optimizer + 1
-                    print("make MopTracker block:{0} -> target_blk:{1}".format(dispatcher_father_serial , target_blk))
-            else:
-                print("MopTracker block:{0} can not is_resolved".format(dispatcher_father_serial))
-        else:
-            print("father_block:{0} is  len = 0".format(dispatcher_father_serial))
+    #
+    # dispatcher_father_serial_list = [x for x in ofs.get_dispath_blk().predset]
+    #
+    # for dispatcher_father_serial in dispatcher_father_serial_list:
+    #     father_tracker = tracker.MopTracker(ofs.switch_status, max_nb_block=100, max_path=100)
+    #     father_tracker.reset()
+    #     dispatcher_father_block = mba.get_mblock(dispatcher_father_serial)
+    #     father_histories = father_tracker.search_backward(dispatcher_father_block, None, [ofs.get_dispath_blk().serial])
+    #     if len(father_histories) == 1:
+    #         if father_histories[0].is_resolved() is True:
+    #             father_histories[0]._execute_microcode()
+    #             target_blk = ofs.get_real_blk(father_histories[0]._current_environment.mop_define)
+    #             if target_blk != -1:
+    #                 change_way_block_successor(dispatcher_father_block,target_blk,ofs.get_dispath_blk().serial)
+    #                 optimizer = optimizer + 1
+    #                 print("make MopTracker block:{0} -> target_blk:{1}".format(dispatcher_father_serial , target_blk))
+    #         else:
+    #             print("MopTracker block:{0} can not is_resolved".format(dispatcher_father_serial))
+    #     else:
+    #         print("father_block:{0} is  len = 0".format(dispatcher_father_serial))
 
     return optimizer
 # 将函数转变成 ida的mba，然后进行解混淆，并显示解混淆后的cfg
@@ -371,7 +366,7 @@ class blkOPt(hr.optblock_t):
 
 
 if __name__ == '__main__':  # 也可以直接在脚本里执行
-    if 0:
+    if 1:
         try:
             start()
         except Exception as e:
