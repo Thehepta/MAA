@@ -1,10 +1,10 @@
-
+from typing import List
 
 import ida_bytes
 import ida_funcs
 import ida_ida
 import ida_range
-from d810 import tracker, utils, Interpreter
+from d810 import utils, Interpreter, SymTracker
 from d810.Environment import SymbolicMicroCodeEnvironment
 from d810.Expr import walk_expr_iter, ExprId, ExprInt, Expr
 from d810.ExprSimplifier import get_branch_condition, simplify, append_expr_if_not_in_list
@@ -15,7 +15,7 @@ from d810.generic import GenericDispatcherBlockInfo
 from d810.hexrays_formatters import format_mop_t, format_minsn_t
 from d810.hexrays_helpers import append_mop_if_not_in_list, extract_num_mop, CONTROL_FLOW_OPCODES, \
     equal_mops_ignore_size, make_reg, MicroMopFactory
-from d810.tracker import duplicate_histories
+from d810.SymTracker import duplicate_histories
 from d810.utils import get_mop_name, enable_console_log, disable_console_log, get_all_possibles_values
 
 from ida_hexrays import mblock_t, mop_t, optblock_t, minsn_visitor_t, mbl_array_t, get_mreg_name
@@ -80,7 +80,7 @@ class ollvmflaSwitch(object):
         for i, (path, env) in enumerate(path_environments):
             list_mop = env.get_path_cond_mopid()
             for mop in list_mop:
-                append_mop_if_not_in_list(mop, self.switch_status)
+                append_mop_if_not_in_list(mop.get_mop(), self.switch_status)
 
         for mop in self.switch_status:
             print(mop.dstr())
@@ -173,7 +173,8 @@ class ollvmflaSwitch(object):
                 node, path, env = stack.pop()
 
                 for succ_serial in node.succset:
-                    # 避免环路（同一条路径内）
+
+                    # 避免环路（同一条路径内）,如果当前这个块已经在路径当前中,直接返回
                     if succ_serial in path:
                         continue
 
@@ -222,7 +223,29 @@ class ollvmflaSwitch(object):
         except RuntimeError as e:
             return None
 
+def deduplicate_histories(mop_histories, searched_mop_list):
+    result = []
 
+    for i, hist_i in enumerate(mop_histories):
+        # 先假设它不是重复的
+        is_duplicate = False
+
+        # 拿它和前面已经保留的每一条比
+        for hist_j in result:
+            # 两条历史在所有 searched_mop 上的值都一样，就算重复
+            same = True
+            for mop in searched_mop_list:
+                if hist_i.get_mop_constant_value(mop) != hist_j.get_mop_constant_value(mop):
+                    same = False
+                    break
+
+            if same:
+                is_duplicate = True
+                break
+
+        if not is_duplicate:
+            result.append(hist_i)
+    return result
 def UnFlaInfo(mba):
     # import pydevd_pycharm
     # pydevd_pycharm.settrace('localhost', port=31235, stdoutToServer=True, stderrToServer=True)
@@ -232,16 +255,17 @@ def UnFlaInfo(mba):
         print("find dispatch failed")
         return optimizer
     for dispatcher_father_serial in ofs.get_dispath_blk().predset:
-        father_tracker = tracker.MopTracker(ofs.switch_status, max_nb_block=100, max_path=100)
+        father_tracker = SymTracker.MopTracker(ofs.switch_status, max_nb_block=100, max_path=100)
         father_tracker.reset()
         dispatcher_father_block = mba.get_mblock(dispatcher_father_serial)
         father_histories = father_tracker.search_backward(dispatcher_father_block, None, [ofs.get_dispath_blk().serial])
-        if len(father_histories) > 1:
-            father_histories_cst = get_all_possibles_values(father_histories,
-                                                            ofs.switch_status,
-                                                            verbose=False)
-            print(father_histories_cst)
-            nb_duplication, nb_change = duplicate_histories(father_histories)
+        dedup_histories = deduplicate_histories(father_histories,ofs.switch_status);
+        if len(dedup_histories) > 1:
+            # father_histories_cst = get_all_possibles_values(father_histories,
+            #                                                 ofs.switch_status,
+            #                                                 verbose=False)
+            # print(father_histories_cst)
+            nb_duplication, nb_change = duplicate_histories(dedup_histories)
             optimizer = optimizer+nb_change;
             print("fix father_block:{0} is  multiple branches".format(dispatcher_father_serial))
     #

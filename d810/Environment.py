@@ -81,8 +81,11 @@ class SymbolicMicroCodeEnvironment:
     """
 
     def __init__(self):
+        # 定义的变量,赋值的变量
         self.mop_define = {}
+        # 未定义变量,对于外部变量的依赖
         self.mop_undefind : List[Expr] = []
+        # 不支持计算的mop类型
         self.mop_unsupport = {}
         # 符号化跳转目标，类似 Miasm 的 IRDst（per-block：当前块的出口）
         # 具体跳转: ExprInt(serial, 4)
@@ -197,13 +200,13 @@ class SymbolicMicroCodeEnvironment:
             return True
         return False
 
-    def get_path_cond_mopid(self):
+    def get_path_cond_mopid(self) -> Optional[List[MopExprId]]:
         list_mopid = []
         for his_cond in self.his_path_cond:
             his_exprs = list(walk_expr_iter(his_cond))
             for expr in his_exprs:
                 if expr.is_mopid():
-                    list_mopid.append(expr.get_mop())
+                    list_mopid.append(expr)
                     # append_mop_if_not_in_list(expr.get_mop(), self.switch_status)
         return list_mopid
 
