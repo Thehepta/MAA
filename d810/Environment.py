@@ -26,7 +26,7 @@ from d810.errors import UnsupportedMopException
 symb_log = logging.getLogger('D810.env')
 
 
-class MopExprId(Expr):
+class ExprMopId(Expr):
     """Symbolic identifier (register, stack variable, global variable)."""
 
     __slots__ = ('_name','_type','_mop')
@@ -50,8 +50,8 @@ class MopExprId(Expr):
     def is_mopid(self) -> bool:
         return True
 
-    def _eq(self, other: MopExprId) -> bool:
-        if not isinstance(other, MopExprId):
+    def _eq(self, other: ExprMopId) -> bool:
+        if not isinstance(other, ExprMopId):
             return False
         return equal_mops_ignore_size(self._mop, other._mop)
 
@@ -61,8 +61,8 @@ class MopExprId(Expr):
     def __repr__(self):
         return "{}:{:d}".format(self._name, self._size)
 
-    def copy(self) -> MopExprId:
-        return MopExprId(self._mop)
+    def copy(self) -> ExprMopId:
+        return ExprMopId(self._mop)
 
     def replace(self, mapping: dict) -> Expr:
         """Replace this identifier if it's in the mapping."""
@@ -144,13 +144,13 @@ class SymbolicMicroCodeEnvironment:
         else:
             self.his_path_cond.append(simplify(ExprOp('lnot', [cond], 1)))
 
-    def define_expr(self, mopExpr: MopExprId, value: Expr):
+    def define_expr(self, mopExpr: ExprMopId, value: Expr):
         self.mop_define[mopExpr] = value
 
     def define(self, mop: mop_t, value: Expr):
         """Define a mop's symbolic value."""
         if mop.t in (mop_r, mop_S, mop_v,mop_a):
-            mop_id = MopExprId(mop)
+            mop_id = ExprMopId(mop)
             self.mop_define[mop_id] = value
         elif mop.t == mop_f:
             mop_id = ExprId(mop.dstr(),mop.size)
@@ -166,7 +166,7 @@ class SymbolicMicroCodeEnvironment:
         """
         result = None
         if mop.t in (mop_r, mop_S, mop_v, mop_a):
-            mop_id = MopExprId(mop)
+            mop_id = ExprMopId(mop)
             result = self.mop_define.get(mop_id)
         else:
             raise UnsupportedMopException("lookup unsupported mop type '{0}': '{1}'".format(
@@ -177,7 +177,7 @@ class SymbolicMicroCodeEnvironment:
 
         # Not found: create a fresh symbolic variable
         if create_undefind_symbol:
-            mop_id = MopExprId(mop)
+            mop_id = ExprMopId(mop)
             self.mop_undefind.append(mop_id)
             symb_log.debug("Created symbolic variable for undefined mop: {0}".format(mop_id.name))
             return mop_id
@@ -200,7 +200,7 @@ class SymbolicMicroCodeEnvironment:
             return True
         return False
 
-    def get_path_cond_mopid(self) -> Optional[List[MopExprId]]:
+    def get_path_cond_mopid(self) -> Optional[List[ExprMopId]]:
         list_mopid = []
         for his_cond in self.his_path_cond:
             his_exprs = list(walk_expr_iter(his_cond))

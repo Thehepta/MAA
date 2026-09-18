@@ -50,7 +50,7 @@ class PureModalPatchChooser(QtWidgets.QDialog):
         super().__init__(parent)
         self.setWindowTitle(title)
 
-        # 变量名 -> MopExprId 的映射（去重）
+        # 变量名 -> ExprMopId 的映射（去重）
         self.name_to_expr = {}
 
         # 去重：同名变量只保留第一个

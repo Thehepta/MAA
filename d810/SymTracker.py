@@ -8,7 +8,6 @@ from ida_hexrays import *
 
 from d810.Expr import Expr, ExprInt, ExprId
 from d810.cfg_utils import change_1way_block_successor, change_2way_block_conditional_successor, duplicate_block
-from d810.InsnCollector import InstructionDefUseCollector, remove_segment_registers
 from d810.hexrays_helpers import equal_mops_ignore_size, get_mop_index, get_blk_index
 from d810.hexrays_formatters import format_minsn_t, format_mop_t
 
@@ -138,7 +137,7 @@ class SymbolicMopHistory:
         self._is_dirty = True
 
     def _execute_microcode(self) -> bool:
-        """Execute the recorded microcode path symbolically."""
+        """Execute the recorded microcode path symbolically using eval_blk."""
         if not self._is_dirty:
             return True
         formatted_mop_searched_list = "['" + "', '".join(
@@ -146,10 +145,12 @@ class SymbolicMopHistory:
         logger.debug("Computing symbolically: {0} for path {1}".format(
             formatted_mop_searched_list, self.block_serial_path))
         self._current_environment = self._initial_environment.get_copy()
+        
+        # 按执行顺序（从前往后）使用 eval_blk 执行每个块
         for blk_info in self.history:
-            for blk_ins in blk_info.ins_list:
-                logger.debug("Executing: {0}.{1}".format(blk_info.blk.serial, format_minsn_t(blk_ins)))
-                self._interpreter.eval_instruction(blk_info.blk, blk_ins, self._current_environment)
+            logger.debug("Executing block: {0}".format(blk_info.blk.serial))
+            self._interpreter.eval_blk(blk_info.blk, self._current_environment)
+        
         self._is_dirty = False
         return True
 
@@ -205,22 +206,6 @@ class SymbolicMopHistory:
                     logger.info("   {0}.{1}".format(blk_info.blk.serial, format_minsn_t(blk_ins)))
 
 
-
-def get_standard_and_memory_mop_lists(mop_in: mop_t) -> Tuple[List[mop_t], List[mop_t]]:
-    if mop_in.t in [mop_r, mop_S]:
-        return [mop_in], []
-    elif mop_in.t == mop_v:
-        return [], [mop_in]
-    elif mop_in.t == mop_d:
-        ins_mop_info = InstructionDefUseCollector()
-        mop_in.d.for_all_ops(ins_mop_info)
-        return remove_segment_registers(ins_mop_info.unresolved_ins_mops), ins_mop_info.memory_unresolved_ins_mops
-    else:
-        logger.warning("Calling get_standard_and_memory_mop_lists with unsupported mop type {0}: '{1}'"
-                       .format(mop_in.t, format_mop_t(mop_in)))
-        return [], []
-
-
 # A MopTracker will create new MopTracker to recursively track variable when multiple paths are possible,
 # The cur_mop_tracker_nb_path global variable is used to limit the number of MopTracker created
 cur_mop_tracker_nb_path = 0
@@ -229,12 +214,7 @@ cur_mop_tracker_nb_path = 0
 class MopTracker(object):
     def __init__(self, searched_mop_list: List[mop_t], max_nb_block=-1, max_path=-1):
         self.mba = None
-        self._unresolved_mops = []
-        self._memory_unresolved_mops = []
-        for searched_mop in searched_mop_list:
-            a, b = get_standard_and_memory_mop_lists(searched_mop)
-            self._unresolved_mops += a
-            self._memory_unresolved_mops += b
+        self.searched_mop_list = searched_mop_list
         self.history = SymbolicMopHistory(searched_mop_list)
         self.max_nb_block = max_nb_block
         self.max_path = max_path
@@ -253,8 +233,7 @@ class MopTracker(object):
 
     def get_copy(self) -> MopTracker:
         global cur_mop_tracker_nb_path
-        new_mop_tracker = MopTracker(self._unresolved_mops, self.max_nb_block, self.max_path)
-        new_mop_tracker._memory_unresolved_mops = [x for x in self._memory_unresolved_mops]
+        new_mop_tracker = MopTracker(self.searched_mop_list, self.max_nb_block, self.max_path)
         new_mop_tracker.constant_mops = [[x[0], x[1]] for x in self.constant_mops]
         new_mop_tracker.history = self.history.get_copy()
         cur_mop_tracker_nb_path += 1
@@ -262,35 +241,35 @@ class MopTracker(object):
 
     def search_backward(self, blk: mblock_t, ins: Optional[minsn_t|None], avoid_list=None, must_use_pred=None,
                         stop_at_first_duplication=False) -> List[SymbolicMopHistory]:
-        logger.debug("Searching backward (reg): {0}".format([format_mop_t(x) for x in self._unresolved_mops]))
-        logger.debug("Searching backward (mem): {0}".format([format_mop_t(x) for x in self._memory_unresolved_mops]))
+        logger.debug("Searching backward for: {0}".format([format_mop_t(x) for x in self.searched_mop_list]))
         logger.debug("Searching backward (cst): {0}"
                      .format(["{0}: {1:x}".format(format_mop_t(x[0]), x[1]) for x in self.constant_mops]))
         self.mba = blk.mba
         self.avoid_list = avoid_list if avoid_list else []
         blk_with_multiple_pred = self.search_until_multiple_predecessor(blk, ins)
+        
+        # 获取未解析的变量（从 history._current_environment 中）
+        unresolved = self._get_unresolved_mops()
+        
+        # 将未解析的变量传递给 history
+        self.history.unresolved_mop_list = unresolved
+        
         if self.is_resolved():
             logger.debug("MopTracker is resolved:  {0}".format(self.history.block_serial_path))
-            self.history.unresolved_mop_list = [x for x in self._unresolved_mops]
             return [self.history]
         elif blk_with_multiple_pred is None:
             logger.debug("MopTracker unresolved: (blk_with_multiple_pred): {0}".format(self.history.block_serial_path))
-            self.history.unresolved_mop_list = [x for x in self._unresolved_mops]
             return [self.history]
         elif self.max_nb_block != -1 and len(self.history.block_serial_path) > self.max_nb_block:
             logger.debug("MopTracker unresolved: (max_nb_block): {0}".format(self.history.block_serial_path))
-            self.history.unresolved_mop_list = [x for x in self._unresolved_mops]
             return [self.history]
         elif self.max_path != -1 and cur_mop_tracker_nb_path > self.max_path:
             logger.debug("MopTracker unresolved: (max_path: {0}".format(cur_mop_tracker_nb_path))
-            self.history.unresolved_mop_list = [x for x in self._unresolved_mops]
             return [self.history]
         elif self.call_detected:
             logger.debug("MopTracker unresolved: (call): {0}".format(self.history.block_serial_path))
-            self.history.unresolved_mop_list = [x for x in self._unresolved_mops]
             return [self.history]
         if stop_at_first_duplication:
-            self.history.unresolved_mop_list = [x for x in self._unresolved_mops]
             return [self.history]
         logger.debug("MopTracker creating child because multiple pred: {0}".format(self.history.block_serial_path))
         possible_histories = []
@@ -305,23 +284,35 @@ class MopTracker(object):
         return possible_histories
 
     def is_resolved(self) -> bool:
-        if (len(self._unresolved_mops) == 0) and (len(self._memory_unresolved_mops) == 0):
-            return True
-
-        for x in self._unresolved_mops:
-            x_index = get_mop_index(x, [y[0] for y in self.constant_mops])
-            if x_index == -1:
-                return False
+        """基于 history._current_environment 判断是否所有 searched_mops 都已解析"""
+        # 先执行 history 确保 environment 是最新的
+        self.history._execute_microcode()
+        
+        for searched_mop in self.searched_mop_list:
+            if searched_mop.t in [mop_r, mop_S, mop_v, mop_a]:
+                # 检查是否在 history._current_environment 中有定义
+                result = self.history._current_environment.lookup(searched_mop, create_undefind_symbol=False)
+                if result is None:
+                    # 检查是否在 constant_mops 中
+                    x_index = get_mop_index(searched_mop, [y[0] for y in self.constant_mops])
+                    if x_index == -1:
+                        return False
         return True
+    
+    def _get_unresolved_mops(self) -> List[mop_t]:
+        """从 history._current_environment 中获取未解析的变量"""
+        self.history._execute_microcode()
+        unresolved = []
+        for mop_expr in self.history._current_environment.mop_undefind:
+            unresolved.append(mop_expr.get_mop())
+        return unresolved
 
     def search_until_multiple_predecessor(self, blk: mblock_t, ins: Union[None, minsn_t] = None) -> Union[None, mblock_t]:
-        # By default, we start searching from block tail
-        cur_ins = ins if ins else blk.tail
+        """向后搜索，记录块和指令，使用 history._execute_microcode() 判断是否 resolved"""
         cur_blk = blk
-        interpreter = SymbolicMicroCodeInterpreter()
 
         while not self.is_resolved():
-            # Explore one block
+            # 检查循环和避免列表
             if cur_blk.serial in self.history.block_serial_path:
                 self.history.insert_block_in_path(cur_blk, 0)
                 return None
@@ -330,105 +321,20 @@ class MopTracker(object):
                 return None
             self.history.insert_block_in_path(cur_blk, 0)
 
-            # initial_env = SymbolicMicroCodeEnvironment()
-            # interpreter.eval_blk(cur_blk, initial_env)
+            initial_env = SymbolicMicroCodeEnvironment()
+            # self.interpreter.eval_blk(cur_blk, initial_env)
 
-            cur_ins = self.blk_find_def_backward(cur_blk, cur_ins)
-            while cur_ins:
-                cur_ins = self.blk_find_def_backward(cur_blk, cur_ins)
+            # 检查前驱
             if cur_blk.npred() > 1:
                 return cur_blk
             elif cur_blk.npred() == 0:
                 return None
             else:
                 cur_blk = self.mba.get_mblock(cur_blk.predset[0])
-                cur_ins = cur_blk.tail
 
-        # We want to handle cases where the self.is_resolved() is True without doing anything
+        # 处理 self.is_resolved() 在开始时就为 True 的情况
         if len(self.history.block_serial_path) == 0:
             self.history.insert_block_in_path(cur_blk, 0)
-        return None
-
-
-
-    def _build_ml_list(self, blk: mblock_t) -> Union[None, mlist_t]:
-        ml = mlist_t()
-        for unresolved_mop in self._unresolved_mops:
-            if unresolved_mop.t not in [mop_r, mop_S]:
-                logger.warning("_build_ml_list: Not supported mop type '{0}'".format(unresolved_mop.t))
-                return None
-            blk.append_use_list(ml, unresolved_mop, MUST_ACCESS)
-        return ml
-
-    def blk_find_def_backward(self, blk: mblock_t, ins_start: minsn_t) -> Union[None, minsn_t]:
-        if self.is_resolved():
-            return None
-        ml = self._build_ml_list(blk)
-        if not ml:
-            logger.warning("blk_find_def_backward: _build_ml_list failed")
-            return None
-        ins_def = self._blk_find_ins_def_backward(blk, ins_start, ml)
-        if ins_def:
-            is_ok = self.update_history(blk, ins_def)
-            if not is_ok:
-                return None
-            ins_def = ins_def.prev
-        return ins_def
-
-
-    # 这个函数为什么还会添加变量那
-    # 现在有三条指令
-    # 指令3: eax = ecx + 1
-    # 指令2: ecx = [rdi + 8]
-    # 指令1: rdi = some_value
-    #
-    # 我们需要分析的变量是eax，在这里，eax已经找到了，但是他其实没有值，他需要依赖ecx
-    # 所以我们把eax从变量列表中移除
-    # 然后在寻找列表中添加ecx
-    # 这个设计是对于代码已经经过分析和优化了，不会出现eax重复定义的情况，或者说依赖ssa
-    def update_history(self, blk: mblock_t, ins_def: minsn_t) -> bool:
-        logger.debug("Updating history with {0}.{1}".format(blk.serial, format_minsn_t(ins_def)))
-        self.history.insert_ins_in_block(blk, ins_def, before=True)
-        if ins_def.opcode == m_call:
-            self.call_detected = True
-            return False
-        ins_mop_info = InstructionDefUseCollector()
-        ins_def.for_all_ops(ins_mop_info)
-
-        for target_mop in ins_mop_info.target_mops:
-            resolved_mop_index = get_mop_index(target_mop, self._unresolved_mops)
-            if resolved_mop_index != -1:
-                logger.debug("Removing {0} from unresolved mop".format(format_mop_t(target_mop)))
-                self._unresolved_mops.pop(resolved_mop_index)
-        cleaned_unresolved_ins_mops = remove_segment_registers(ins_mop_info.unresolved_ins_mops)
-        for ins_def_mop in cleaned_unresolved_ins_mops:
-            ins_def_mop_index = get_mop_index(ins_def_mop, self._unresolved_mops)
-            if ins_def_mop_index == -1:
-                logger.debug("Adding {0} in unresolved mop".format(format_mop_t(ins_def_mop)))
-                self._unresolved_mops.append(ins_def_mop)
-
-        for target_mop in ins_mop_info.target_mops:
-            resolved_mop_index = get_mop_index(target_mop, self._memory_unresolved_mops)
-            if resolved_mop_index != -1:
-                logger.debug("Removing {0} from memory unresolved mop".format(format_mop_t(target_mop)))
-                self._memory_unresolved_mops.pop(resolved_mop_index)
-        for ins_def_mem_mop in ins_mop_info.memory_unresolved_ins_mops:
-            ins_def_mop_index = get_mop_index(ins_def_mem_mop, self._memory_unresolved_mops)
-            if ins_def_mop_index == -1:
-                logger.debug("Adding {0} in memory unresolved mop".format(format_mop_t(ins_def_mem_mop)))
-                self._memory_unresolved_mops.append(ins_def_mem_mop)
-        return True
-
-    def _blk_find_ins_def_backward(self, blk: mblock_t, ins_start: minsn_t, ml: mlist_t) -> Union[None, minsn_t]:
-        cur_ins = ins_start
-        while cur_ins is not None:
-            def_list = blk.build_def_list(cur_ins, MAY_ACCESS | FULL_XDSU)
-            if ml.has_common(def_list):
-                return cur_ins
-            for mem_mop in self._memory_unresolved_mops:
-                if equal_mops_ignore_size(cur_ins.d, mem_mop):
-                    return cur_ins
-            cur_ins = cur_ins.prev
         return None
 
 
