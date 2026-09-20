@@ -15,7 +15,7 @@ from d810.generic import GenericDispatcherBlockInfo
 from d810.hexrays_formatters import format_mop_t, format_minsn_t
 from d810.hexrays_helpers import append_mop_if_not_in_list, extract_num_mop, CONTROL_FLOW_OPCODES, \
     equal_mops_ignore_size, make_reg, MicroMopFactory
-from d810.SymTracker import duplicate_histories
+from d810.SymTracker import duplicate_histories, deduplicate_histories
 from d810.utils import get_mop_name, enable_console_log, disable_console_log, get_all_possibles_values
 
 from ida_hexrays import mblock_t, mop_t, optblock_t, minsn_visitor_t, mbl_array_t, get_mreg_name
@@ -223,29 +223,7 @@ class ollvmflaSwitch(object):
         except RuntimeError as e:
             return None
 
-def deduplicate_histories(mop_histories, searched_mop_list):
-    result = []
 
-    for i, hist_i in enumerate(mop_histories):
-        # 先假设它不是重复的
-        is_duplicate = False
-
-        # 拿它和前面已经保留的每一条比
-        for hist_j in result:
-            # 两条历史在所有 searched_mop 上的值都一样，就算重复
-            same = True
-            for mop in searched_mop_list:
-                if hist_i.get_mop_constant_value(mop) != hist_j.get_mop_constant_value(mop):
-                    same = False
-                    break
-
-            if same:
-                is_duplicate = True
-                break
-
-        if not is_duplicate:
-            result.append(hist_i)
-    return result
 def UnFlaInfo(mba):
     # import pydevd_pycharm
     # pydevd_pycharm.settrace('localhost', port=31235, stdoutToServer=True, stderrToServer=True)

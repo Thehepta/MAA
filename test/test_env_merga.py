@@ -51,7 +51,7 @@ def UnFlaInfo(mba):
     microcode_environment2.dump(log.console_logger)
 
 
-    microcode_environment.merge_env(microcode_environment2)
+    microcode_environment.update_forward(microcode_environment2)
     microcode_environment.dump(log.console_logger)
 
 

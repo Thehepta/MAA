@@ -7,7 +7,7 @@ identifiers that propagate through operations. Expressions are simplified on the
 """
 from __future__ import annotations
 import logging
-from typing import List, Optional
+from typing import List, Optional, Dict
 
 from d810.hexrays_helpers import equal_mops_ignore_size
 from d810.utils import get_mop_name
@@ -29,7 +29,7 @@ symb_log = logging.getLogger('D810.env')
 class ExprMopId(Expr):
     """Symbolic identifier (register, stack variable, global variable)."""
 
-    __slots__ = ('_name','_type','_mop')
+    __slots__ = ('_name', '_type', '_mop')
 
     def __init__(self, mop):
         super().__init__(mop.size)
@@ -56,7 +56,7 @@ class ExprMopId(Expr):
         return equal_mops_ignore_size(self._mop, other._mop)
 
     def __hash__(self):
-        return hash(('MopExprId', self._name,self._type, self._size))
+        return hash(('MopExprId', self._name, self._type, self._size))
 
     def __repr__(self):
         return "{}:{:d}".format(self._name, self._size)
@@ -71,6 +71,7 @@ class ExprMopId(Expr):
             return mapping[self]
         return self
 
+
 class SymbolicMicroCodeEnvironment:
     """
     Symbolic environment mapping microcode operands to symbolic expressions.
@@ -82,15 +83,16 @@ class SymbolicMicroCodeEnvironment:
 
     def __init__(self):
         # 定义的变量,赋值的变量
-        self.mop_define = {}
+        self.mop_define: Optional[Dict[ExprMopId, Expr]] = {}
         # 未定义变量,对于外部变量的依赖
-        self.mop_undefind : List[Expr] = []
+        self.mop_undefind: List[ExprMopId] = []
         # 不支持计算的mop类型
-        self.mop_unsupport = {}
+        # 主要有两个原因get_mop_name 不支持这个类型的mop,并且没法计算这个类型的mop
+        self.mop_unsupport: Optional[Dict[ExprId, Expr]] = {}
         # 符号化跳转目标，类似 Miasm 的 IRDst（per-block：当前块的出口）
         # 具体跳转: ExprInt(serial, 4)
         # 条件跳转: ExprCond(cond, ExprInt(target), ExprInt(fallthrough))
-        self.irdst: Optional[Expr|ExprCond] = None
+        self.irdst: Optional[Expr | ExprCond] = None
 
         # 路径约束（per-path）：执行所经过的每个条件分支的约束，按所选方向取正/取反。
         # 与 irdst 不同，它跨块累积，整条路径的可行性 = 列表中所有约束的合取(AND)。
@@ -104,12 +106,31 @@ class SymbolicMicroCodeEnvironment:
             res = ExprOp("&", [res, e], 4)
         return res
 
-    def merge_env(self,env:SymbolicMicroCodeEnvironment):
+    def update_forward(self, env: SymbolicMicroCodeEnvironment):
         self.mop_define.update(env.mop_define)
         self.mop_unsupport.update(env.mop_unsupport)
 
-        for mop_expr in env.mop_undefind:
-            append_expr_if_not_in_list(mop_expr, self.mop_undefind)
+        for mopid in env.mop_undefind:
+            append_expr_if_not_in_list(mopid, self.mop_undefind)
+
+        for mop_expr in env.his_path_cond:
+            append_expr_if_not_in_list(mop_expr, self.his_path_cond)
+
+        if env.irdst != None:
+            self.irdst = env.irdst.copy()
+
+    def track_backward(self, env: SymbolicMicroCodeEnvironment):
+        self.mop_define = {**env.mop_define, **self.mop_define}
+        self.mop_unsupport = {**env.mop_unsupport, **self.mop_unsupport}
+
+        for mopid in env.mop_undefind:
+            append_expr_if_not_in_list(mopid, self.mop_undefind)
+
+        # 只有数据向后追踪的时候才需要更新未定义的变量,追踪时未定义的变量可能在先前定义了
+        for mopid in self.mop_undefind:
+            result = self.mop_define.get(mopid)
+            if result is not None:
+                self.mop_undefind.remove(mopid)
 
         for mop_expr in env.his_path_cond:
             append_expr_if_not_in_list(mop_expr, self.his_path_cond)
@@ -121,7 +142,7 @@ class SymbolicMicroCodeEnvironment:
         """Create a full copy of this environment (all records are copied)."""
         new_env = SymbolicMicroCodeEnvironment()
         new_env.mop_define = self.mop_define.copy()
-        new_env.mop_undefind =self.mop_undefind.copy()
+        new_env.mop_undefind = self.mop_undefind.copy()
         if self.irdst is not None:
             new_env.irdst = self.irdst.copy()
         new_env.his_path_cond = list(self.his_path_cond)
@@ -149,11 +170,11 @@ class SymbolicMicroCodeEnvironment:
 
     def define(self, mop: mop_t, value: Expr):
         """Define a mop's symbolic value."""
-        if mop.t in (mop_r, mop_S, mop_v,mop_a):
+        if mop.t in (mop_r, mop_S, mop_v, mop_a):
             mop_id = ExprMopId(mop)
             self.mop_define[mop_id] = value
         elif mop.t == mop_f:
-            mop_id = ExprId(mop.dstr(),mop.size)
+            mop_id = ExprId(mop.dstr(), mop.size)
             self.mop_unsupport[mop_id] = value
         else:
             raise UnsupportedMopException("Defining unsupported mop type '{0}': '{1}'".format(
@@ -184,7 +205,7 @@ class SymbolicMicroCodeEnvironment:
 
         return None
 
-    def does_only_need(self, father_env:SymbolicMicroCodeEnvironment) -> bool:
+    def does_only_need(self, father_env: SymbolicMicroCodeEnvironment) -> bool:
 
         if self.mop_undefind:
             for mop_expr in self.mop_undefind:
@@ -210,7 +231,7 @@ class SymbolicMicroCodeEnvironment:
                     # append_mop_if_not_in_list(expr.get_mop(), self.switch_status)
         return list_mopid
 
-    def dump(self,logger=None):
+    def dump(self, logger=None):
         """
         将环境中所有已定义的符号值输出到 IDA 控制台。
         格式: mop_name = expr_value
@@ -241,4 +262,3 @@ class SymbolicMicroCodeEnvironment:
         log.debug("-" * 60)
         log.debug("Total: {0} entries".format(total))
         log.debug("=" * 60)
-

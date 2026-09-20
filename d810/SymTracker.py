@@ -39,6 +39,8 @@ class BlockInfo(object):
         new_block_info.ins_list = [x for x in self.ins_list]
         return new_block_info
 
+interpreter = SymbolicMicroCodeInterpreter()
+
 
 class SymbolicMopHistory:
     """
@@ -51,16 +53,13 @@ class SymbolicMopHistory:
     def __init__(self, searched_mop_list: List[mop_t]):
         self.searched_mop_list = [mop_t(x) for x in searched_mop_list]
         self.history: List[BlockInfo] = []
-        self.unresolved_mop_list: List[mop_t] = []
 
         self._interpreter = SymbolicMicroCodeInterpreter()
         self._initial_environment = SymbolicMicroCodeEnvironment()
         self._current_environment = self._initial_environment.get_copy()
-        self._is_dirty = True
 
     def add_mop_initial_value(self, mop: mop_t, value: Union[int, Expr]):
         """Define an initial value for a mop (concrete or symbolic)."""
-        self._is_dirty = True
         if isinstance(value, int):
             size = mop.size if mop.size > 0 else 8
             expr_value = ExprInt(value, size)
@@ -73,7 +72,6 @@ class SymbolicMopHistory:
         Define an initial symbolic variable for a mop.
         If name is None, uses the formatted mop name.
         """
-        self._is_dirty = True
         size = mop.size if mop.size > 0 else 8
         if name is None:
             name = format_mop_t(mop)
@@ -82,26 +80,18 @@ class SymbolicMopHistory:
     def get_copy(self) -> SymbolicMopHistory:
         new_history = SymbolicMopHistory(self.searched_mop_list)
         new_history.history = [x.get_copy() for x in self.history]
-        new_history.unresolved_mop_list = [x for x in self.unresolved_mop_list]
         new_history._initial_environment = self._initial_environment.get_copy()
         new_history._current_environment = new_history._initial_environment.get_copy()
-        new_history._is_dirty = True
         return new_history
 
     def is_resolved(self) -> bool:
         """Check if all searched mops can be evaluated (even symbolically)."""
-        # In symbolic mode, we're always "resolved" in the sense that we can
-        # always produce a value (possibly symbolic). The question is whether
-        # the value is concrete.
-        if len(self.unresolved_mop_list) == 0:
-            return True
-        for x in self.unresolved_mop_list:
-            val = self._initial_environment.lookup(x, create_undefind_symbol=False)
-            if val is None:
-                return False
-            if val.is_int() is False:
-                return False
-        return True
+        for searched_mop in self.searched_mop_list:
+            result = self._current_environment.lookup(searched_mop, create_undefind_symbol=False)
+            if result is not None:
+                return result.is_int()
+        return False
+
 
     @property
     def block_path(self) -> List[mblock_t]:
@@ -112,20 +102,16 @@ class SymbolicMopHistory:
         return [blk.serial for blk in self.block_path]
 
     def replace_block_in_path(self, old_blk: mblock_t, new_blk: mblock_t) -> bool:
-        from d810.hexrays_helpers import get_blk_index
         blk_index = get_blk_index(old_blk, self.block_path)
         if blk_index > 0:
             self.history[blk_index].blk = new_blk
-            self._is_dirty = True
             return True
         return False
 
     def insert_block_in_path(self, blk: mblock_t, where_index: int):
         self.history = self.history[:where_index] + [BlockInfo(blk)] + self.history[where_index:]
-        self._is_dirty = True
 
     def insert_ins_in_block(self, blk: mblock_t, ins: minsn_t, before=True):
-        from d810.hexrays_helpers import get_blk_index
         blk_index = get_blk_index(blk, self.block_path)
         if blk_index < 0:
             return False
@@ -134,28 +120,8 @@ class SymbolicMopHistory:
             blk_info.ins_list = [ins] + blk_info.ins_list
         else:
             blk_info.ins_list = blk_info.ins_list + [ins]
-        self._is_dirty = True
-
-    def _execute_microcode(self) -> bool:
-        """Execute the recorded microcode path symbolically using eval_blk."""
-        if not self._is_dirty:
-            return True
-        formatted_mop_searched_list = "['" + "', '".join(
-            [format_mop_t(x) for x in self.searched_mop_list]) + "']"
-        logger.debug("Computing symbolically: {0} for path {1}".format(
-            formatted_mop_searched_list, self.block_serial_path))
-        self._current_environment = self._initial_environment.get_copy()
-        
-        # 按执行顺序（从前往后）使用 eval_blk 执行每个块
-        for blk_info in self.history:
-            logger.debug("Executing block: {0}".format(blk_info.blk.serial))
-            self._interpreter.eval_blk(blk_info.blk, self._current_environment)
-        
-        self._is_dirty = False
-        return True
 
     def get_defind_expr(self):
-        self._execute_microcode()
         return self._current_environment.mop_define
 
     def get_mop_symbolic_value(self, searched_mop: mop_t) -> Expr:
@@ -163,7 +129,6 @@ class SymbolicMopHistory:
         Get the symbolic value of a mop after executing the path.
         Always returns a Expr (concrete or symbolic).
         """
-        self._execute_microcode()
         return self._current_environment.lookup(searched_mop)
 
     def get_mop_constant_value(self, searched_mop: mop_t) -> Optional[int]:
@@ -227,10 +192,6 @@ class MopTracker(object):
         global cur_mop_tracker_nb_path
         cur_mop_tracker_nb_path = 0
 
-    def add_mop_definition(self, mop: mop_t, cst_value: int):
-        self.constant_mops.append([mop, cst_value])
-        self.history.add_mop_initial_value(mop, cst_value)
-
     def get_copy(self) -> MopTracker:
         global cur_mop_tracker_nb_path
         new_mop_tracker = MopTracker(self.searched_mop_list, self.max_nb_block, self.max_path)
@@ -247,12 +208,6 @@ class MopTracker(object):
         self.mba = blk.mba
         self.avoid_list = avoid_list if avoid_list else []
         blk_with_multiple_pred = self.search_until_multiple_predecessor(blk, ins)
-        
-        # 获取未解析的变量（从 history._current_environment 中）
-        unresolved = self._get_unresolved_mops()
-        
-        # 将未解析的变量传递给 history
-        self.history.unresolved_mop_list = unresolved
         
         if self.is_resolved():
             logger.debug("MopTracker is resolved:  {0}".format(self.history.block_serial_path))
@@ -284,33 +239,11 @@ class MopTracker(object):
         return possible_histories
 
     def is_resolved(self) -> bool:
-        """基于 history._current_environment 判断是否所有 searched_mops 都已解析"""
-        # 先执行 history 确保 environment 是最新的
-        self.history._execute_microcode()
-        
-        for searched_mop in self.searched_mop_list:
-            if searched_mop.t in [mop_r, mop_S, mop_v, mop_a]:
-                # 检查是否在 history._current_environment 中有定义
-                result = self.history._current_environment.lookup(searched_mop, create_undefind_symbol=False)
-                if result is None:
-                    # 检查是否在 constant_mops 中
-                    x_index = get_mop_index(searched_mop, [y[0] for y in self.constant_mops])
-                    if x_index == -1:
-                        return False
-        return True
-    
-    def _get_unresolved_mops(self) -> List[mop_t]:
-        """从 history._current_environment 中获取未解析的变量"""
-        self.history._execute_microcode()
-        unresolved = []
-        for mop_expr in self.history._current_environment.mop_undefind:
-            unresolved.append(mop_expr.get_mop())
-        return unresolved
+        return self.history.is_resolved();
 
     def search_until_multiple_predecessor(self, blk: mblock_t, ins: Union[None, minsn_t] = None) -> Union[None, mblock_t]:
-        """向后搜索，记录块和指令，使用 history._execute_microcode() 判断是否 resolved"""
-        cur_blk = blk
 
+        cur_blk = blk
         while not self.is_resolved():
             # 检查循环和避免列表
             if cur_blk.serial in self.history.block_serial_path:
@@ -322,7 +255,8 @@ class MopTracker(object):
             self.history.insert_block_in_path(cur_blk, 0)
 
             initial_env = SymbolicMicroCodeEnvironment()
-            # self.interpreter.eval_blk(cur_blk, initial_env)
+            interpreter.eval_blk(cur_blk, initial_env)
+            self.history._current_environment.track_backward(initial_env)
 
             # 检查前驱
             if cur_blk.npred() > 1:
@@ -429,3 +363,26 @@ def duplicate_histories(var_histories: List[SymbolicMopHistory], max_nb_pass: in
         logger.info(" end.{0}: {1}".format(i, var_history.block_serial_path))
     return total_nb_duplication, total_nb_change
 
+def deduplicate_histories(mop_histories, searched_mop_list):
+    result = []
+
+    for i, hist_i in enumerate(mop_histories):
+        # 先假设它不是重复的
+        is_duplicate = False
+
+        # 拿它和前面已经保留的每一条比
+        for hist_j in result:
+            # 两条历史在所有 searched_mop 上的值都一样，就算重复
+            same = True
+            for mop in searched_mop_list:
+                if hist_i.get_mop_constant_value(mop) != hist_j.get_mop_constant_value(mop):
+                    same = False
+                    break
+
+            if same:
+                is_duplicate = True
+                break
+
+        if not is_duplicate:
+            result.append(hist_i)
+    return result
