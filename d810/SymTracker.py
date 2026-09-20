@@ -127,7 +127,7 @@ class SymbolicMopHistory:
         Get the symbolic value of a mop after executing the path.
         Always returns a Expr (concrete or symbolic).
         """
-        return self.initial_environment.lookup(searched_mop)
+        return self.initial_environment.lookup(searched_mop,create_undefind_symbol=False)
 
     def get_mop_constant_value(self, searched_mop: mop_t) -> Optional[int]:
         """
@@ -235,7 +235,7 @@ class MopTracker(object):
                 self.history.insert_block_in_path(cur_blk, 0)
                 return None
             self.history.insert_block_in_path(cur_blk, 0)
-            
+
             self.history.track_block(cur_blk)
 
             # 检查前驱
