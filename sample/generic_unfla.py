@@ -225,8 +225,8 @@ class ollvmflaSwitch(object):
 
 
 def UnFlaInfo(mba):
-    # import pydevd_pycharm
-    # pydevd_pycharm.settrace('localhost', port=31235, stdoutToServer=True, stderrToServer=True)
+    import pydevd_pycharm
+    pydevd_pycharm.settrace('localhost', port=31235, stdoutToServer=True, stderrToServer=True)
     optimizer = 0
     ofs = ollvmflaSwitch(mba)
     if not ofs.explore():
@@ -237,9 +237,10 @@ def UnFlaInfo(mba):
         father_tracker.reset()
         dispatcher_father_block = mba.get_mblock(dispatcher_father_serial)
         father_histories = father_tracker.search_backward(dispatcher_father_block, None, [ofs.get_dispath_blk().serial])
-        dedup_histories = deduplicate_histories(father_histories,ofs.switch_status);
+        dedup_histories = deduplicate_histories(father_histories,ofs.switch_status)
+        print(dispatcher_father_serial,len(dedup_histories))
         if len(dedup_histories) > 1:
-            # father_histories_cst = get_all_possibles_values(father_histories,
+            # father_histories_cst = get_all_possibles_values(dedup_histories,
             #                                                 ofs.switch_status,
             #                                                 verbose=False)
             # print(father_histories_cst)
@@ -289,7 +290,7 @@ def start():
     if not ida_bytes.is_code(F):
         return (False, "The selected range must start with an instruction")
     text = "unfla"
-    mmat = hr.MMAT_CALLS
+    mmat = hr.MMAT_GLBOPT2
     if text is None and mmat is None:
         return (True, "Cancelled")
 
