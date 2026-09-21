@@ -34,7 +34,7 @@ def UnFlaInfo(mba):
     # import pydevd_pycharm
     # pydevd_pycharm.settrace('localhost', port=31235, stdoutToServer=True, stderrToServer=True)
     # print("dispatch_block serial:", hex(dispatch_block.serial))
-    blk_serial1 = 5
+    blk_serial1 = 7
 
     blk = mba.get_mblock(blk_serial1)
     microcode_interpreter = SymbolicMicroCodeInterpreter()
@@ -44,7 +44,7 @@ def UnFlaInfo(mba):
 
 
 
-    blk_serial2 = 17
+    blk_serial2 = 9
     blk2 = mba.get_mblock(blk_serial2)
     microcode_environment2 = SymbolicMicroCodeEnvironment()
     microcode_interpreter.eval_blk(blk2,microcode_environment2)
@@ -76,7 +76,7 @@ def start():
     if not ida_bytes.is_code(F):
         return (False, "The selected range must start with an instruction")
     text = "unfla"
-    mmat = hr.MMAT_GLBOPT3
+    mmat = hr.MMAT_GLBOPT2
     if text is None and mmat is None:
         return (True, "Cancelled")
 

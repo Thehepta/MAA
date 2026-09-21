@@ -1,6 +1,7 @@
 import ctypes
 import logging
 
+import ida_hexrays
 from d810.hexrays_formatters import format_mop_t
 from d810.hexrays_helpers import MSB_TABLE
 from ida_hexrays import mop_t, mop_r, get_mreg_name, mop_S, mop_v, mop_a
@@ -110,7 +111,8 @@ def get_mop_name(mop: mop_t) -> str:
         return name
     elif mop.t == mop_S:
         # Stack variable: use stack offset
-        return mop.dstr()
+        # return mop.dstr()
+        return "Stvar_{:x}".format(mop.s.off)
     elif mop.t == mop_v:
         # Global variable: use address
         return "Gvar_{:x}".format(mop.g)

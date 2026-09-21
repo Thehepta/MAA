@@ -56,7 +56,7 @@ class ExprMopId(Expr):
         return equal_mops_ignore_size(self._mop, other._mop)
 
     def __hash__(self):
-        return hash(('MopExprId', self._name, self._type, self._size))
+        return hash(('MopExprId', self._name, self._type))
 
     def __repr__(self):
         return "{}:{:d}".format(self._name, self._size)
@@ -110,8 +110,13 @@ class SymbolicMicroCodeEnvironment:
         self.mop_define.update(env.mop_define)
         self.mop_unsupport.update(env.mop_unsupport)
 
+
         for mopid in env.mop_undefind:
-            append_expr_if_not_in_list(mopid, self.mop_undefind)
+            mop_value =  self.mop_define.get(mopid)
+            if mop_value is None:
+                append_expr_if_not_in_list(mopid, self.mop_undefind)
+            # else:
+
 
         for mop_expr in env.his_path_cond:
             append_expr_if_not_in_list(mop_expr, self.his_path_cond)

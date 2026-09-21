@@ -25,6 +25,7 @@ import traceback
 import ida_dbg
 from lucid.ui.graph import show_microcode_graph
 from lucid.ui.graph import graphviz
+from lucid.util import log
 
 FLATTENING_JUMP_OPCODES = [hr.m_jnz, hr.m_jz, hr.m_jae, hr.m_jb, hr.m_ja, hr.m_jbe, hr.m_jg, hr.m_jge, hr.m_jl,
                            hr.m_jle]
@@ -225,8 +226,8 @@ class ollvmflaSwitch(object):
 
 
 def UnFlaInfo(mba):
-    import pydevd_pycharm
-    pydevd_pycharm.settrace('localhost', port=31235, stdoutToServer=True, stderrToServer=True)
+    # import pydevd_pycharm
+    # pydevd_pycharm.settrace('localhost', port=31235, stdoutToServer=True, stderrToServer=True)
     optimizer = 0
     ofs = ollvmflaSwitch(mba)
     if not ofs.explore():
@@ -237,8 +238,11 @@ def UnFlaInfo(mba):
         father_tracker.reset()
         dispatcher_father_block = mba.get_mblock(dispatcher_father_serial)
         father_histories = father_tracker.search_backward(dispatcher_father_block, None, [ofs.get_dispath_blk().serial])
+        ss = father_histories[0].get_mop_constant_value(ofs.switch_status[0])
+        father_histories[0].initial_environment.dump(log.console_logger)
+        # print("ss:",ss)
         dedup_histories = deduplicate_histories(father_histories,ofs.switch_status)
-        print(dispatcher_father_serial,len(dedup_histories))
+        print(dispatcher_father_serial,len(dedup_histories),ss)
         if len(dedup_histories) > 1:
             # father_histories_cst = get_all_possibles_values(dedup_histories,
             #                                                 ofs.switch_status,

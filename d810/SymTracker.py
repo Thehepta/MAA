@@ -3,6 +3,7 @@ import logging
 from typing import Dict, Optional
 
 from d810.Environment import SymbolicMicroCodeEnvironment
+from d810.ExprSimplifier import simplify
 from d810.Interpreter import SymbolicMicroCodeInterpreter
 from ida_hexrays import *
 
@@ -138,7 +139,7 @@ class SymbolicMopHistory:
         expr = self.get_mop_symbolic_value(searched_mop)
         if expr is None:
             return None
-        return expr.as_int()
+        return simplify(expr).as_int()
 
     def print_info(self, detailed_info=False):
         formatted_mop_searched_list = [format_mop_t(x) for x in self.searched_mop_list]
