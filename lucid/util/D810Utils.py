@@ -159,9 +159,9 @@ def eva_blks(start_block, microcode_environment: SymbolicMicroCodeEnvironment,
 def show_insn_info(ins,blk):
 
     print("op:{0}     type:{1} content:{2}".format(opcode_to_string(ins.opcode), type(ins.opcode), ins.opcode))
-    print("insn.l:{0} type:{1} content:{2}".format(ins.l.dstr(), mop_type_to_string(ins.l.t),
-                                                    get_mop_content(ins.l)))
-    print("insn.r:{0} type:{1} content:{2}".format(ins.r.dstr(), mop_type_to_string(ins.r.t),
-                                                    get_mop_content(ins.r)))
-    print("insn.d:{0} type:{1} content:{2}".format(ins.d.dstr(), mop_type_to_string(ins.d.t),
-                                                    get_mop_content(ins.d)))
+    print("insn.l:{0} type:{1} content:{2} valnum:{3}".format(ins.l.dstr(), mop_type_to_string(ins.l.t),
+                                                    get_mop_content(ins.l),ins.l.valnum))
+    print("insn.r:{0} type:{1} content:{2} valnum:{3}".format(ins.r.dstr(), mop_type_to_string(ins.r.t),
+                                                    get_mop_content(ins.r),ins.r.valnum))
+    print("insn.d:{0} type:{1} content:{2} valnum:{3}".format(ins.d.dstr(), mop_type_to_string(ins.d.t),
+                                                    get_mop_content(ins.d),ins.d.valnum))
