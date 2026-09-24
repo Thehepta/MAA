@@ -71,7 +71,7 @@ def get_block_top_level_inputs(current_block) -> list:
     microcode_environment = SymbolicMicroCodeEnvironment()
     microcode_interpreter.eval_blk(current_block,microcode_environment)
     # microcode_environment.dump(log.console_logger)
-    return microcode_environment.mop_undefind
+    return microcode_environment.mop_undefinde
 # def get_block_top_level_inputs(mblock) -> list:
 #     entry_block = GenericDispatcherBlockInfo(mblock)
 #     entry_block.parse()
@@ -85,7 +85,7 @@ def eval_current_blk(current_block, environment_values: dict):
     microcode_interpreter = SymbolicMicroCodeInterpreter()
     microcode_environment = SymbolicMicroCodeEnvironment()
     for mopExpr, value_int in environment_values.items():
-        microcode_environment.define_expr(mopExpr, ExprInt(value_int, mopExpr.size))
+        microcode_environment.define(mopExpr.get_mop(), ExprInt(value_int, mopExpr.size))
     microcode_interpreter.eval_blk(current_block, microcode_environment)
     microcode_environment.dump(log.console_logger)
 

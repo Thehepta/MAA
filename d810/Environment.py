@@ -85,7 +85,7 @@ class SymbolicMicroCodeEnvironment:
         # 定义的变量,赋值的变量
         self.mop_define: Optional[Dict[ExprMopId, Expr]] = {}
         # 未定义变量,对于外部变量的依赖
-        self.mop_undefind: List[ExprMopId] = []
+        self.mop_undefinde: List[ExprMopId] = []
         # 不支持计算的mop类型
         # 主要有两个原因get_mop_name 不支持这个类型的mop,并且没法计算这个类型的mop
         self.mop_unsupport: Optional[Dict[ExprId, Expr]] = {}
@@ -111,10 +111,10 @@ class SymbolicMicroCodeEnvironment:
         self.mop_unsupport.update(env.mop_unsupport)
 
 
-        for mopid in env.mop_undefind:
+        for mopid in env.mop_undefinde:
             mop_value =  self.mop_define.get(mopid)
             if mop_value is None:
-                append_expr_if_not_in_list(mopid, self.mop_undefind)
+                append_expr_if_not_in_list(mopid, self.mop_undefinde)
             # else:
 
 
@@ -128,14 +128,14 @@ class SymbolicMicroCodeEnvironment:
         self.mop_define = {**env.mop_define, **self.mop_define}
         self.mop_unsupport = {**env.mop_unsupport, **self.mop_unsupport}
 
-        for mopid in env.mop_undefind:
-            append_expr_if_not_in_list(mopid, self.mop_undefind)
+        for mopid in env.mop_undefinde:
+            append_expr_if_not_in_list(mopid, self.mop_undefinde)
 
         # 只有数据向后追踪的时候才需要更新未定义的变量,追踪时未定义的变量可能在先前定义了
-        for mopid in self.mop_undefind:
+        for mopid in self.mop_undefinde:
             result = self.mop_define.get(mopid)
             if result is not None:
-                self.mop_undefind.remove(mopid)
+                self.mop_undefinde.remove(mopid)
 
         for mop_expr in env.his_path_cond:
             append_expr_if_not_in_list(mop_expr, self.his_path_cond)
@@ -147,7 +147,7 @@ class SymbolicMicroCodeEnvironment:
         """Create a full copy of this environment (all records are copied)."""
         new_env = SymbolicMicroCodeEnvironment()
         new_env.mop_define = self.mop_define.copy()
-        new_env.mop_undefind = self.mop_undefind.copy()
+        new_env.mop_undefinde = self.mop_undefinde.copy()
         if self.irdst is not None:
             new_env.irdst = self.irdst.copy()
         new_env.his_path_cond = list(self.his_path_cond)
@@ -170,9 +170,6 @@ class SymbolicMicroCodeEnvironment:
         else:
             self.his_path_cond.append(simplify(ExprOp('lnot', [cond], 1)))
 
-    def define_expr(self, mopExpr: ExprMopId, value: Expr):
-        self.mop_define[mopExpr] = value
-
     def define(self, mop: mop_t, value: Expr):
         """Define a mop's symbolic value."""
         if mop.t in (mop_r, mop_S, mop_v, mop_a):
@@ -185,7 +182,20 @@ class SymbolicMicroCodeEnvironment:
             raise UnsupportedMopException("Defining unsupported mop type '{0}': '{1}'".format(
                 mop_type_to_string(mop.t), format_mop_t(mop)))
 
-    def lookup(self, mop: mop_t, create_undefind_symbol: bool = True) -> Expr:
+    def assign(self, mop: mop_t, value: Expr):
+        """assign a mop's symbolic value."""
+        if mop.t in (mop_r, mop_S, mop_v, mop_a):
+            mop_id = ExprMopId(mop)
+            self.mop_define[mop_id] = value
+            self.mop_undefinde.pop(mop_id, None)  # 从“未定义”列表移除
+        elif mop.t == mop_f:
+            mop_id = ExprId(mop.dstr(), mop.size)
+            self.mop_unsupport[mop_id] = value
+        else:
+            raise UnsupportedMopException("Defining unsupported mop type '{0}': '{1}'".format(
+                mop_type_to_string(mop.t), format_mop_t(mop)))
+
+    def lookup(self, mop: mop_t, create_undefind_symbol: bool = False) -> Expr:
         """
         Look up a mop's symbolic value.
         If not found and create_symbol is True, returns a fresh symbolic variable.
@@ -204,7 +214,7 @@ class SymbolicMicroCodeEnvironment:
         # Not found: create a fresh symbolic variable
         if create_undefind_symbol:
             mop_id = ExprMopId(mop)
-            self.mop_undefind.append(mop_id)
+            self.mop_undefinde.append(mop_id)
             symb_log.debug("Created symbolic variable for undefined mop: {0}".format(mop_id.name))
             return mop_id
 
@@ -212,13 +222,13 @@ class SymbolicMicroCodeEnvironment:
 
     def does_only_need(self, father_env: SymbolicMicroCodeEnvironment) -> bool:
 
-        if self.mop_undefind:
-            for mop_expr in self.mop_undefind:
+        if self.mop_undefinde:
+            for mop_expr in self.mop_undefinde:
                 mop = mop_expr.get_mop()
                 # 在之前累积的环境中查找
                 found_in_define = father_env.lookup(mop, create_undefind_symbol=False) is not None
                 found_in_undefind = any(equal_mops_ignore_size(h_mop_expr.get_mop(), mop) for h_mop_expr in
-                                        father_env.mop_undefind)
+                                        father_env.mop_undefinde)
 
                 # 如果这个未定义变量在之前环境中找不到，终止这条路径
                 if not (found_in_define or found_in_undefind):
@@ -258,9 +268,9 @@ class SymbolicMicroCodeEnvironment:
             log.debug("[Registers]")
             for mopExpr, value in self.mop_define.items():
                 log.debug("  {0} = {1}".format(mopExpr.name, value))
-        if len(self.mop_undefind) > 0:
+        if len(self.mop_undefinde) > 0:
             log.debug("[Undefine]")
-            for mopExpr in self.mop_undefind:
+            for mopExpr in self.mop_undefinde:
                 log.debug("  mop : {0}".format(mopExpr.name))
 
         total = len(self.mop_define)

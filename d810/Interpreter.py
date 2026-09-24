@@ -52,7 +52,7 @@ class SymbolicMicroCodeInterpreter:
         res = self._eval_instruction(blk, ins, environment)
         if res is not None:
             if (ins.d is not None) and ins.d.t != mop_z:
-                environment.define(ins.d, res)
+                environment.assign(ins.d, res)
         return res
 
     def _eval_instruction(self, blk: Optional[mblock_t], ins: Optional[minsn_t],

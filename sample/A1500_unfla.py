@@ -187,13 +187,13 @@ class ollvmflaSwitch(object):
 
                     # 检查终止条件：当前块的未定义变量是否能在之前累积的环境中找到
                     can_terminate = False
-                    if block_env.mop_undefind:  # 当前块的未定义变量
-                        for mop_expr in block_env.mop_undefind:
+                    if block_env.mop_undefinde:  # 当前块的未定义变量
+                        for mop_expr in block_env.mop_undefinde:
                             mop = mop_expr.get_mop()
                             # 在之前累积的环境中查找
                             found_in_define = prev_env.lookup(mop, create_undefind_symbol=False) is not None
                             found_in_undefind = any(equal_mops_ignore_size(h_mop_expr.get_mop(), mop) for h_mop_expr in
-                                                    prev_env.mop_undefind)
+                                                    prev_env.mop_undefinde)
 
                             # 如果这个未定义变量在之前环境中找不到，终止这条路径
                             if not (found_in_define or found_in_undefind):
