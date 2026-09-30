@@ -192,7 +192,7 @@ class MopTracker(object):
         self.avoid_list = avoid_list if avoid_list else []
         blk_with_multiple_pred = self.search_until_multiple_predecessor(blk, ins)
         
-        if self.is_resolved():
+        if self.history.is_resolved():
             logger.debug("MopTracker is resolved:  {0}".format(self.history.block_serial_path))
             return [self.history]
         elif blk_with_multiple_pred is None:
@@ -221,13 +221,10 @@ class MopTracker(object):
                                                                   self.avoid_list, must_use_pred)
         return possible_histories
 
-    def is_resolved(self) -> bool:
-        return self.history.is_resolved();
-
     def search_until_multiple_predecessor(self, blk: mblock_t, ins: Union[None, minsn_t] = None) -> Union[None, mblock_t]:
 
         cur_blk = blk
-        while not self.is_resolved():
+        while not self.history.is_resolved():
             # 检查循环和避免列表
             if cur_blk.serial in self.history.block_serial_path:
                 self.history.insert_block_in_path(cur_blk, 0)

@@ -17,7 +17,7 @@ from ida_hexrays import (
 )
 
 from d810.Expr import (
-    Expr, ExprId, ExprOp, ExprCond, walk_expr_iter,
+    Expr, ExprId, ExprOp, ExprCond, walk_expr_iter, ExprInt, ExprMem, ExprSlice, ExprCompose,
 )
 from d810.ExprSimplifier import simplify, append_expr_if_not_in_list
 from d810.hexrays_formatters import format_mop_t, mop_type_to_string
@@ -72,7 +72,120 @@ class ExprMopId(Expr):
         return self
 
 
-class SymbolicMicroCodeEnvironment:
+class SymbolicExprEvaluator:
+    """
+    封装 SymbolicMicroCodeInterpreter 和 SymbolicMicroCodeEnvironment 的统一接口。
+    提供符号执行的完整功能，包括执行指令、块、查询变量状态等。
+    """
+
+    def __init__(self):
+
+        self.expr_to_visitor = {
+            ExprInt: self.eval_exprint,
+            ExprMopId: self.eval_expr_mopid,
+            ExprMem: self.eval_exprmem,
+            ExprSlice: self.eval_exprslice,
+            ExprCond: self.eval_exprcond,
+            ExprOp: self.eval_exprop,
+            ExprCompose: self.eval_exprcompose,
+        }
+
+    def eval_expr(self, expr, eval_cache=None):
+        """
+        Evaluate @expr
+        @expr: Expression instance to evaluate
+        @cache: None or dictionary linking variables to their values
+        """
+        if eval_cache is None:
+            eval_cache = {}
+        ret = self.eval_expr_visitor(expr, cache=eval_cache)
+        assert ret is not None
+        return ret
+
+    def eval_expr_visitor(self, expr, cache=None):
+        """
+        [DEV]: Override to change the behavior of an Expr evaluation.
+        This function recursively applies 'eval_expr*' to @expr.
+        This function uses @cache to speedup re-evaluation of expression.
+        """
+        if cache is None:
+            cache = {}
+
+        ret = cache.get(expr, None)
+        if ret is not None:
+            return ret
+
+        new_expr = simplify(expr)
+        ret = cache.get(expr, None)
+        if ret is not None:
+            return ret
+
+        func = self.expr_to_visitor.get(new_expr.__class__, None)
+        if func is None:
+            raise TypeError("Unknown expr type")
+
+        ret = func(new_expr, cache=cache)
+        ret = simplify(ret)
+        assert ret is not None
+
+        cache[expr] = ret
+        cache[new_expr] = ret
+        return ret
+
+    def eval_exprint(self, expr, **kwargs):
+        """[DEV]: Evaluate an ExprInt using the current state"""
+        return expr
+
+    def eval_exprmem(self, expr, **kwargs):
+        """[DEV]: Evaluate an ExprMem using the current state
+        This function first evaluate the memory pointer value.
+        Override 'mem_read' to modify the effective memory accesses
+        """
+        ptr = self.eval_expr_visitor(expr.ptr, **kwargs)
+        mem = ExprMem(ptr, expr.size)
+        ret = self.mem_read(mem)
+        return ret
+
+    def eval_exprslice(self, expr, **kwargs):
+        """[DEV]: Evaluate an ExprSlice using the current state"""
+        arg = self.eval_expr_visitor(expr.arg, **kwargs)
+        ret = ExprSlice(arg, expr.start, expr.stop)
+        return ret
+
+    def eval_exprop(self, expr, **kwargs):
+        """[DEV]: Evaluate an ExprOp using the current state"""
+        args = []
+        for oarg in expr.args:
+            arg = self.eval_expr_visitor(oarg, **kwargs)
+            args.append(arg)
+
+        ret = ExprOp(expr.op, *args,expr.size)
+        return ret
+
+    def eval_exprcompose(self, expr, **kwargs):
+        """[DEV]: Evaluate an ExprCompose using the current state"""
+        args = []
+        for arg in expr.args:
+            args.append(self.eval_expr_visitor(arg, **kwargs))
+        ret = ExprCompose(*args)
+        return ret
+
+    def eval_exprcond(self, expr, **kwargs):
+        """[DEV]: Evaluate an ExprCond using the current state"""
+        cond = self.eval_expr_visitor(expr.cond, **kwargs)
+        src1 = self.eval_expr_visitor(expr.src1, **kwargs)
+        src2 = self.eval_expr_visitor(expr.src2, **kwargs)
+        ret = ExprCond(cond, src1, src2)
+        return ret
+
+    def mem_read(self):
+        pass
+
+    def eval_expr_mopid(self, expr, **kwargs):
+        pass
+
+
+class SymbolicMicroCodeEnvironment(SymbolicExprEvaluator):
     """
     Symbolic environment mapping microcode operands to symbolic expressions.
 
@@ -82,13 +195,14 @@ class SymbolicMicroCodeEnvironment:
     """
 
     def __init__(self):
+        super.__init__()
         # 定义的变量,赋值的变量
         self.mop_define: Optional[Dict[ExprMopId, Expr]] = {}
         # 未定义变量,对于外部变量的依赖
         self.mop_undefinde: List[ExprMopId] = []
         # 不支持计算的mop类型
         # 主要有两个原因get_mop_name 不支持这个类型的mop,并且没法计算这个类型的mop
-        self.mop_unsupport: Optional[Dict[ExprId, Expr]] = {}
+        self.mop_unsupport: Optional[Dict[ExprMopId, Expr]] = {}
         # 符号化跳转目标，类似 Miasm 的 IRDst（per-block：当前块的出口）
         # 具体跳转: ExprInt(serial, 4)
         # 条件跳转: ExprCond(cond, ExprInt(target), ExprInt(fallthrough))
@@ -97,6 +211,7 @@ class SymbolicMicroCodeEnvironment:
         # 路径约束（per-path）：执行所经过的每个条件分支的约束，按所选方向取正/取反。
         # 与 irdst 不同，它跨块累积，整条路径的可行性 = 列表中所有约束的合取(AND)。
         self.his_path_cond: List[Expr] = []
+
 
     def get_path_cond_expr(self):
         if len(self.his_path_cond) == 1:
@@ -171,16 +286,7 @@ class SymbolicMicroCodeEnvironment:
             self.his_path_cond.append(simplify(ExprOp('lnot', [cond], 1)))
 
     def define(self, mop: mop_t, value: Expr):
-        """Define a mop's symbolic value."""
-        if mop.t in (mop_r, mop_S, mop_v, mop_a):
-            mop_id = ExprMopId(mop)
-            self.mop_define[mop_id] = value
-        elif mop.t == mop_f:
-            mop_id = ExprId(mop.dstr(), mop.size)
-            self.mop_unsupport[mop_id] = value
-        else:
-            raise UnsupportedMopException("Defining unsupported mop type '{0}': '{1}'".format(
-                mop_type_to_string(mop.t), format_mop_t(mop)))
+        self.assign(mop,value)
 
     def assign(self, mop: mop_t, value: Expr):
         """assign a mop's symbolic value."""
@@ -189,7 +295,7 @@ class SymbolicMicroCodeEnvironment:
             self.mop_define[mop_id] = value
             self.mop_undefinde.pop(mop_id, None)  # 从“未定义”列表移除
         elif mop.t == mop_f:
-            mop_id = ExprId(mop.dstr(), mop.size)
+            mop_id = ExprMopId(mop)
             self.mop_unsupport[mop_id] = value
         else:
             raise UnsupportedMopException("Defining unsupported mop type '{0}': '{1}'".format(
@@ -245,6 +351,13 @@ class SymbolicMicroCodeEnvironment:
                     list_mopid.append(expr)
                     # append_mop_if_not_in_list(expr.get_mop(), self.switch_status)
         return list_mopid
+
+    def mem_read(self):
+        pass
+
+    def eval_expr_mopid(self, expr, **kwargs):
+        ret = self.lookup(expr)
+        return ret
 
     def dump(self, logger=None):
         """
