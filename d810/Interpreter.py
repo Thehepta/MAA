@@ -47,12 +47,21 @@ class SymbolicMicroCodeInterpreter:
     that propagate through operations and can potentially simplify to concrete values.
     """
 
+    def assign_mopid(self, mop, res:Optional[Expr]):
+        # environment.assign(ins.d, res)
+        pass
+
+    def read_mopid(self,mop):
+        # result = environment.lookup(mop)
+        # return result
+        pass
+
     def _eval_instruction_and_update_environment(self, blk: Optional[mblock_t], ins: Optional[minsn_t],
                                                  environment: SymbolicMicroCodeEnvironment) -> Optional[Expr]:
         res = self._eval_instruction(blk, ins, environment)
         if res is not None:
             if (ins.d is not None) and ins.d.t != mop_z:
-                environment.assign(ins.d, res)
+                self.assign_mopid(ins.d, res)
         return res
 
     def _eval_instruction(self, blk: Optional[mblock_t], ins: Optional[minsn_t],
@@ -324,7 +333,7 @@ class SymbolicMicroCodeInterpreter:
                     stack_mop = mop_t()
                     stack_mop.erase()
                     stack_mop._make_stkvar(cur_blk.mba, addr_expr.as_int())
-                    result = environment.lookup(stack_mop)
+                    result = self.read_mopid(stack_mop)
                     return self._apply_size(result, res_size)
                 # Symbolic stack address
                 return ExprMem(addr_expr, res_size)
@@ -392,7 +401,7 @@ class SymbolicMicroCodeInterpreter:
         if mop.t == mop_n:
             return ExprInt(mop.nnn.value & _size_mask(size), size)
         elif mop.t in (mop_r, mop_S):
-            result = environment.lookup(mop)
+            result = self.read_mopid(mop)
             # Handle size mismatch: equal_mops_ignore_size may return a value
             # stored at a different size (e.g., wrote eax.4, now reading rax.8)
             return self._apply_size(result, size)
@@ -405,7 +414,7 @@ class SymbolicMicroCodeInterpreter:
                 return ExprId("sub_insn_{}".format(format_mop_t(mop)), size)
             return result
         elif mop.t == mop_a:
-            result = environment.lookup(mop)
+            result = self.read_mopid(mop)
             return self._apply_size(result, size)
         elif mop.t == mop_v:
             # Global variable
@@ -415,14 +424,14 @@ class SymbolicMicroCodeInterpreter:
             #         seg_perm = mem_seg.perm
             #         if (seg_perm & SEGPERM_WRITE) != 0:
             #             # Writable global: look up symbolically
-            #             result = environment.lookup(mop)
+            #             result = self.read_mopid(mop)
             #             return self._apply_size(result, size)
             #         else:
             #             # Read-only global: return address as concrete value
             #             return ExprInt(mop.g, size)
             # except Exception:
             #     pass
-            result = environment.lookup(mop)
+            result = self.read_mopid(mop)
             return self._apply_size(result, size)
 
         # Unsupported mop type - return symbolic
@@ -482,3 +491,4 @@ class SymbolicMicroCodeInterpreter:
             microcode_environment.irdst = ExprInt(current_block.serial + 1, 4)
 
         return microcode_environment
+
