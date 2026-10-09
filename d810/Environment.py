@@ -9,8 +9,9 @@ from __future__ import annotations
 import logging
 from typing import List, Optional, Dict
 
+from d810 import ExprMopId
+from d810 import ExprEvaluator
 from d810.hexrays_helpers import equal_mops_ignore_size
-from d810.utils import get_mop_name
 from ida_hexrays import (
     mblock_t, mop_t,
     mop_r, mop_S, mop_v, mop_f, mop_a,
@@ -26,166 +27,7 @@ from d810.errors import UnsupportedMopException
 symb_log = logging.getLogger('D810.env')
 
 
-class ExprMopId(Expr):
-    """Symbolic identifier (register, stack variable, global variable)."""
-
-    __slots__ = ('_name', '_type', '_mop')
-
-    def __init__(self, mop):
-        super().__init__(mop.size)
-        self._name = get_mop_name(mop)
-        self._type = mop.t
-        self._mop = mop
-
-    @property
-    def name(self) -> str:
-        return self._name
-
-    def get_mop(self):
-        return self._mop
-
-    def get_mop_t(self):
-        return self._type
-
-    def is_mopid(self) -> bool:
-        return True
-
-    def _eq(self, other: ExprMopId) -> bool:
-        if not isinstance(other, ExprMopId):
-            return False
-        return equal_mops_ignore_size(self._mop, other._mop)
-
-    def __hash__(self):
-        return hash(('MopExprId', self._name, self._type))
-
-    def __repr__(self):
-        return "{}:{:d}".format(self._name, self._size)
-
-    def copy(self) -> ExprMopId:
-        return ExprMopId(self._mop)
-
-    def replace(self, mapping: dict) -> Expr:
-        """Replace this identifier if it's in the mapping."""
-        # Check exact match first
-        if self in mapping:
-            return mapping[self]
-        return self
-
-
-class SymbolicExprEvaluator:
-    """
-    封装 SymbolicMicroCodeInterpreter 和 SymbolicMicroCodeEnvironment 的统一接口。
-    提供符号执行的完整功能，包括执行指令、块、查询变量状态等。
-    """
-
-    def __init__(self):
-
-        self.expr_to_visitor = {
-            ExprInt: self.eval_exprint,
-            ExprMopId: self.eval_expr_mopid,
-            ExprMem: self.eval_exprmem,
-            ExprSlice: self.eval_exprslice,
-            ExprCond: self.eval_exprcond,
-            ExprOp: self.eval_exprop,
-            ExprCompose: self.eval_exprcompose,
-        }
-
-    def eval_expr(self, expr, eval_cache=None):
-        """
-        Evaluate @expr
-        @expr: Expression instance to evaluate
-        @cache: None or dictionary linking variables to their values
-        """
-        if eval_cache is None:
-            eval_cache = {}
-        ret = self.eval_expr_visitor(expr, cache=eval_cache)
-        assert ret is not None
-        return ret
-
-    def eval_expr_visitor(self, expr, cache=None):
-        """
-        [DEV]: Override to change the behavior of an Expr evaluation.
-        This function recursively applies 'eval_expr*' to @expr.
-        This function uses @cache to speedup re-evaluation of expression.
-        """
-        if cache is None:
-            cache = {}
-
-        ret = cache.get(expr, None)
-        if ret is not None:
-            return ret
-
-        new_expr = simplify(expr)
-        ret = cache.get(expr, None)
-        if ret is not None:
-            return ret
-
-        func = self.expr_to_visitor.get(new_expr.__class__, None)
-        if func is None:
-            raise TypeError("Unknown expr type")
-
-        ret = func(new_expr, cache=cache)
-        ret = simplify(ret)
-        assert ret is not None
-
-        cache[expr] = ret
-        cache[new_expr] = ret
-        return ret
-
-    def eval_exprint(self, expr, **kwargs):
-        """[DEV]: Evaluate an ExprInt using the current state"""
-        return expr
-
-    def eval_exprmem(self, expr, **kwargs):
-        """[DEV]: Evaluate an ExprMem using the current state
-        This function first evaluate the memory pointer value.
-        Override 'mem_read' to modify the effective memory accesses
-        """
-        ptr = self.eval_expr_visitor(expr.ptr, **kwargs)
-        mem = ExprMem(ptr, expr.size)
-        ret = self.mem_read(mem)
-        return ret
-
-    def eval_exprslice(self, expr, **kwargs):
-        """[DEV]: Evaluate an ExprSlice using the current state"""
-        arg = self.eval_expr_visitor(expr.arg, **kwargs)
-        ret = ExprSlice(arg, expr.start, expr.stop)
-        return ret
-
-    def eval_exprop(self, expr, **kwargs):
-        """[DEV]: Evaluate an ExprOp using the current state"""
-        args = []
-        for oarg in expr.args:
-            arg = self.eval_expr_visitor(oarg, **kwargs)
-            args.append(arg)
-
-        ret = ExprOp(expr.op, *args,expr.size)
-        return ret
-
-    def eval_exprcompose(self, expr, **kwargs):
-        """[DEV]: Evaluate an ExprCompose using the current state"""
-        args = []
-        for arg in expr.args:
-            args.append(self.eval_expr_visitor(arg, **kwargs))
-        ret = ExprCompose(*args)
-        return ret
-
-    def eval_exprcond(self, expr, **kwargs):
-        """[DEV]: Evaluate an ExprCond using the current state"""
-        cond = self.eval_expr_visitor(expr.cond, **kwargs)
-        src1 = self.eval_expr_visitor(expr.src1, **kwargs)
-        src2 = self.eval_expr_visitor(expr.src2, **kwargs)
-        ret = ExprCond(cond, src1, src2)
-        return ret
-
-    def mem_read(self):
-        pass
-
-    def eval_expr_mopid(self, expr, **kwargs):
-        pass
-
-
-class SymbolicMicroCodeEnvironment(SymbolicExprEvaluator):
+class SymbolicMicroCodeEnvironment(ExprEvaluator):
     """
     Symbolic environment mapping microcode operands to symbolic expressions.
 
@@ -195,7 +37,7 @@ class SymbolicMicroCodeEnvironment(SymbolicExprEvaluator):
     """
 
     def __init__(self):
-        super.__init__()
+        super().__init__()
         # 定义的变量,赋值的变量
         self.mop_define: Optional[Dict[ExprMopId, Expr]] = {}
         # 未定义变量,对于外部变量的依赖
@@ -352,9 +194,8 @@ class SymbolicMicroCodeEnvironment(SymbolicExprEvaluator):
                     # append_mop_if_not_in_list(expr.get_mop(), self.switch_status)
         return list_mopid
 
-    def mem_read(self):
-        pass
-
+    # def mem_read(self):
+    #     pass
     def eval_expr_mopid(self, expr, **kwargs):
         ret = self.lookup(expr)
         return ret
