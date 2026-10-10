@@ -28,7 +28,7 @@ from d810.Expr import (
     Expr, ExprInt, ExprId, ExprMem, ExprOp,
     ExprSlice, ExprCond, _size_mask
 )
-from d810.ExprSimplifier import simplify, unsigned_to_signed
+from d810.ExprSimplifier import simplify, unsigned_to_signed, get_branch_condition
 from d810.hexrays_helpers import CONTROL_FLOW_OPCODES, CONDITIONAL_JUMP_OPCODES
 from d810.hexrays_formatters import format_minsn_t, format_mop_t, mop_type_to_string, opcode_to_string
 from d810.cfg_utils import get_block_serials_by_address
@@ -46,20 +46,19 @@ class SymbolicMicroCodeInterpreter:
     that propagate through operations and can potentially simplify to concrete values.
     """
 
+    def __init__(self):
+        self.env = None
+
     def assign_mopid(self, mop, res:Optional[Expr]):
-        # environment.assign(ins.d, res)
-        pass
+        self.env.assign(mop, res)
 
     def read_mopid(self,mop) -> Expr:
-        # result = environment.lookup(mop)
-        # return result
-        pass
+        result = self.env.lookup(mop)
+        return result
 
     def set_control_flow(self,irdst):
+        self.env.irdst = irdst
 
-        # environment.irdst = irdst
-
-        pass
 
     def _eval_instruction_and_update_environment(self, blk: Optional[mblock_t], ins: Optional[minsn_t]) -> Optional[Expr]:
         res = self._eval_instruction(blk, ins)
@@ -463,4 +462,31 @@ class SymbolicMicroCodeInterpreter:
                 raise e
         return None
 
+    def eval_blk(self, current_block,microcode_environment):
+        """
+        对单个基本块做符号执行。
 
+        顺序求值块内每一条指令，直到块尾。遇到控制流指令时，
+        eval_instruction 会把（可能是符号化的）跳转目标写入
+        microcode_environment.irdst，本函数不跟随跳转、也不清空 irdst，
+        而是将其原样保留在环境中供调用方做后续分析。
+        """
+        if microcode_environment is None:
+            return
+        self.env = microcode_environment
+        if microcode_environment.irdst is not None:
+            if microcode_environment.irdst.is_cond():
+                target_expr = ExprInt(current_block.serial, 4)
+                jump_cond = get_branch_condition(microcode_environment.irdst, target_expr)
+                microcode_environment.his_path_cond.append(jump_cond)
+            microcode_environment.irdst = None
+
+        cur_ins = current_block.head
+        while cur_ins is not None:
+            self.eval_instruction(current_block, cur_ins, microcode_environment)
+            cur_ins = cur_ins.next
+
+        if microcode_environment.irdst is None:
+            microcode_environment.irdst = ExprInt(current_block.serial + 1, 4)
+
+        return microcode_environment.irdst
