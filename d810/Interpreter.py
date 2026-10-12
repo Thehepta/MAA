@@ -53,11 +53,11 @@ class SymbolicMicroCodeInterpreter:
         self.env.assign(mop, res)
 
     def read_mopid(self,mop) -> Expr:
-        result = self.env.lookup(mop)
+        result = self.env.lookup(mop,True)
         return result
 
     def set_control_flow(self,irdst):
-        self.env.irdst = irdst
+        self.env.set_control_flow(irdst)
 
 
     def _eval_instruction_and_update_environment(self, blk: Optional[mblock_t], ins: Optional[minsn_t]) -> Optional[Expr]:

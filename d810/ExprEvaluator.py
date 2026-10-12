@@ -1,4 +1,4 @@
-from d810 import ExprMopId
+from d810.ExprMopId import ExprMopId
 from d810.Expr import Expr, ExprOp, ExprCond, ExprInt, ExprMem, ExprSlice, ExprCompose
 from d810.ExprSimplifier import simplify
 

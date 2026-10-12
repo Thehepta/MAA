@@ -9,8 +9,8 @@ from __future__ import annotations
 import logging
 from typing import List, Optional, Dict
 
-from d810 import ExprMopId
-from d810 import ExprEvaluator
+from d810.ExprMopId import ExprMopId
+from d810.ExprEvaluator import ExprEvaluator
 from d810.hexrays_helpers import equal_mops_ignore_size
 from ida_hexrays import (
     mblock_t, mop_t,
@@ -135,7 +135,6 @@ class SymbolicMicroCodeEnvironment(ExprEvaluator):
         if mop.t in (mop_r, mop_S, mop_v, mop_a):
             mop_id = ExprMopId(mop)
             self.mop_define[mop_id] = value
-            self.mop_undefinde.pop(mop_id, None)  # 从“未定义”列表移除
         elif mop.t == mop_f:
             mop_id = ExprMopId(mop)
             self.mop_unsupport[mop_id] = value
@@ -167,6 +166,10 @@ class SymbolicMicroCodeEnvironment(ExprEvaluator):
             return mop_id
 
         return None
+
+    def set_control_flow(self, irdst : Expr):
+        self.irdst = irdst
+
 
     def does_only_need(self, father_env: SymbolicMicroCodeEnvironment) -> bool:
 
