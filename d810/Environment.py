@@ -64,43 +64,6 @@ class SymbolicMicroCodeEnvironment(ExprEvaluator):
             res = ExprOp("&", [res, e], 4)
         return res
 
-    def update_forward(self, env: SymbolicMicroCodeEnvironment):
-        self.mop_define.update(env.mop_define)
-        self.mop_unsupport.update(env.mop_unsupport)
-
-
-        for mopid in env.mop_undefinde:
-            mop_value =  self.mop_define.get(mopid)
-            if mop_value is None:
-                append_expr_if_not_in_list(mopid, self.mop_undefinde)
-            # else:
-
-
-        for mop_expr in env.his_path_cond:
-            append_expr_if_not_in_list(mop_expr, self.his_path_cond)
-
-        if env.irdst != None:
-            self.irdst = env.irdst.copy()
-
-    def track_backward(self, env: SymbolicMicroCodeEnvironment):
-        self.mop_define = {**env.mop_define, **self.mop_define}
-        self.mop_unsupport = {**env.mop_unsupport, **self.mop_unsupport}
-
-        for mopid in env.mop_undefinde:
-            append_expr_if_not_in_list(mopid, self.mop_undefinde)
-
-        # 只有数据向后追踪的时候才需要更新未定义的变量,追踪时未定义的变量可能在先前定义了
-        for mopid in self.mop_undefinde:
-            result = self.mop_define.get(mopid)
-            if result is not None:
-                self.mop_undefinde.remove(mopid)
-
-        for mop_expr in env.his_path_cond:
-            append_expr_if_not_in_list(mop_expr, self.his_path_cond)
-
-        if env.irdst != None:
-            self.irdst = env.irdst.copy()
-
     def get_copy(self) -> SymbolicMicroCodeEnvironment:
         """Create a full copy of this environment (all records are copied)."""
         new_env = SymbolicMicroCodeEnvironment()
@@ -179,7 +142,6 @@ class SymbolicMicroCodeEnvironment(ExprEvaluator):
                 # 在之前累积的环境中查找
                 found_in_define = father_env.lookup(mop) is not None
                 found_in_undefind = any(equal_mops_ignore_size(h_mop_expr, mop) for h_mop_expr in father_env.mop_undefinde)
-
                 # 如果这个未定义变量在之前环境中找不到，终止这条路径
                 if not (found_in_define or found_in_undefind):
                     return False

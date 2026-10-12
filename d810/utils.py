@@ -124,61 +124,46 @@ def get_mop_name(mop: mop_t) -> str:
 
 
 def find_all_paths_dfs(start_block, end_blocks):
-    """
-    使用DFS算法寻找从起始节点到终点列表中任意节点的所有路径
-
-    Args:
-        start_block: 起始块 (mblock_t)
-        end_blocks: 终点块列表 [mblock_t]
-
-    Returns:
-        list: 所有符合条件的路径列表，每条路径是块编号列表
-    """
     if not start_block or not end_blocks:
         return []
 
-    # 将终点列表转换为集合，方便快速查找
     end_block_nums = set(blk.serial for blk in end_blocks)
+    # print(f"终点块编号: {end_block_nums}")  # 调试输出
 
-    all_paths = []  # 存储所有符合条件的路径
-    visited = set()  # 防止循环
+    all_paths = []
+    visited = set()
 
     def dfs(current_block, path):
-        """
-        DFS递归函数
-
-        Args:
-            current_block: 当前块 (mblock_t)
-            path: 当前路径 [块编号]
-        """
         current_num = current_block.serial
 
-        # 检测环
         if current_num in visited:
             return
 
-        # 将当前块加入路径
+        if current_num in end_block_nums:
+            tmp_path = path.copy()
+            tmp_path.append(current_num)
+            # print(f"到达终点 {current_num}, 路径: {tmp_path}")  # 调试输出
+            all_paths.append(tmp_path)
+            return
+
         path.append(current_num)
         visited.add(current_num)
 
-        # 如果当前块是终点，保存路径
-        if current_num in end_block_nums:
-            all_paths.append(path.copy())
-            # 不立即返回，继续查找其他路径
-        else:
-            # 遍历所有后继块
-            for succ_num in current_block.succs:
-                succ_block = current_block.mba.get_mblock(succ_num)
-                dfs(succ_block, path)
+        for succ_block in current_block.succs():
+            dfs(succ_block, path)
 
-        # 回溯
         path.pop()
         visited.remove(current_num)
 
-    # 从起始块开始DFS
     dfs(start_block, [])
-
-    return all_paths
+    unique_paths = []
+    seen = set()
+    for path in all_paths:
+        path_tuple = tuple(path)
+        if path_tuple not in seen:
+            seen.add(path_tuple)
+            unique_paths.append(path)
+    return unique_paths
 
 
 # 输出控制台

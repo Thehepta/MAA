@@ -110,6 +110,7 @@ class dominance_graphviewer_t(microcode_graphviewer_t):
         self.show_UnFlatten_log_id = self.AddCommand("show UnFlatten Info log ", "")
         self.eval_current_blk_id = self.AddCommand("eval current blk ", "")
         self.execute_blks_id = self.AddCommand("execute blks", "")
+        self.trace_blks_id = self.AddCommand("trace blks", "")
         self.state = "cfg"
         self.back_stack = []
         self.select_block = None
@@ -160,11 +161,14 @@ class dominance_graphviewer_t(microcode_graphviewer_t):
             else:
                 print("dialog cancelled")
         elif cmd_id == self.execute_blks_id:
-            start_blk, end_blk = self._execute_blks_dialog()
+            start_blk, end_blk = self.eval_blks_dialog("execute blks")
             if start_blk is not None and end_blk is not None:
-                env = D810Utils.eva_blks(self._mba, start_blk, end_blk)
-                if env is not None:
-                    env.dump(log.console_logger)
+                D810Utils.eval_blks(self._mba, start_blk, end_blk)
+                print("exe blks ", start_blk, end_blk)
+        elif cmd_id == self.trace_blks_id:
+            start_blk, end_blk = self.eval_blks_dialog("trace blks")
+            if start_blk is not None and end_blk is not None:
+                D810Utils.eval_blks(self._mba, start_blk, end_blk)
                 print("exe blks ", start_blk, end_blk)
         elif cmd_id == self.save_graphviz_id:
             file_path = kw.ask_file(True, "*.dot", "Please select a file")
@@ -196,27 +200,26 @@ class dominance_graphviewer_t(microcode_graphviewer_t):
         """
         print("OnKeydown, vk=%d shift=%d" % (vkey, shift))
 
-    def _execute_blks_dialog(self):
+    def eval_blks_dialog(self, title="Execute Blocks"):
 
         class ExecuteBlksForm(kw.Form):
-            def __init__(self):
+            def __init__(self, form_title):
                 F = kw.Form
                 F.__init__(
                     self,
                     r"""STARTITEM 0
-                    BUTTONS YES*OK NO*Cancel
-                    Execute Blocks
-                    
-                    <##Start Block :{start_blk}>
-                    <##End Block   :{end_blk}>
-                    """,
+{title}
+
+<##Start Block :{{start_blk}}>
+<##End Block   :{{end_blk}}>
+""".format(title=form_title),
                     {
                         'start_blk': F.StringInput(swidth=20),
                         'end_blk': F.StringInput(swidth=20),
                     }
                 )
 
-        form = ExecuteBlksForm()
+        form = ExecuteBlksForm(title)
         form, args = form.Compile()
         ok = form.Execute()
         if ok != 1:
