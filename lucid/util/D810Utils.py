@@ -90,71 +90,62 @@ def eval_current_blk(current_block, environment_values: dict):
     microcode_environment.dump(log.console_logger)
 
 
-def eva_blks(start_block, microcode_environment: SymbolicMicroCodeEnvironment,
-             max_blocks: int = 1000):
+def eva_blks(mba, start_blk_serial, end_blk_serial, max_blocks: int = 1000):
     """
     跨多个基本块做符号执行，并累积路径约束。
 
-    以单块执行 eva_blk 为基本步，按块尾的 irdst 决定下一块：
-      - 具体跳转 ExprInt：直接跟随到该块；
-      - 符号条件跳转 ExprCond：选择 fallthrough(src_false) 边继续，
-        同时调用 add_path_condition 记录"该条件不成立"的约束；
-      - 其它（间接/符号目标）或无 irdst：停止。
+    先使用 BFS 计算从 start_blk_serial 到 end_blk_serial 的路径，
+    然后沿着这条路径顺序执行符号解释器。
 
-    用 visited 检测回边(back-edge)，避免在含循环的混淆 CFG 上死循环。
     执行结束后 microcode_environment.path_conditions 即整条路径必须同时
     满足的约束集合（合取）。
     """
-    if microcode_environment is None:
-        microcode_environment = SymbolicMicroCodeEnvironment()
+    from collections import deque
+
+    # 使用 BFS 找到从 start_blk_serial 到 end_blk_serial 的路径
+    def find_path(start_serial, end_serial):
+        if start_serial == end_serial:
+            return [start_serial]
+
+        queue = deque([(start_serial, [start_serial])])
+        visited = {start_serial}
+
+        while queue:
+            current_serial, path = queue.popleft()
+            current_blk = mba.get_mblock(current_serial)
+
+            # 遍历所有后继块
+            for succ_serial in current_blk.succset:
+                if succ_serial == end_serial:
+                    return path + [succ_serial]
+
+                if succ_serial not in visited:
+                    visited.add(succ_serial)
+                    queue.append((succ_serial, path + [succ_serial]))
+
+        return None  # 未找到路径
+
+    # 计算路径
+    path = find_path(start_blk_serial, end_blk_serial)
+    if path is None:
+        print("No path found from block {0} to block {1}".format(start_blk_serial, end_blk_serial))
+        return None
+
+    print("Found path: {0}".format(path))
+
+    # 沿着路径执行符号解释
+    microcode_environment = SymbolicMicroCodeEnvironment()
     microcode_interpreter = SymbolicMicroCodeInterpreter()
 
-    cur_blk = start_block
-    visited = set()
-    count = 0
-
-    while cur_blk is not None and count < max_blocks:
-        count += 1
-        if cur_blk.serial in visited:
-            print("Back-edge to block {0}, stopping".format(cur_blk.serial))
+    for blk_serial in path:
+        if blk_serial >= mba.qty:
+            print("Block {0} out of range".format(blk_serial))
             break
-        visited.add(cur_blk.serial)
 
+        cur_blk = mba.get_mblock(blk_serial)
         microcode_interpreter.eval_blk(cur_blk, microcode_environment)
-        irdst = microcode_environment.irdst
 
-        if irdst is None:
-            # 块尾不是控制流指令：自然 fallthrough 到 serial+1
-            cur_blk = cur_blk.mba.get_mblock(cur_blk.serial + 1)
-            continue
-
-        if irdst.is_int():
-            cur_blk = cur_blk.mba.get_mblock(irdst.as_int())
-            continue
-
-        if irdst.is_cond():
-            # 符号条件分支：选择 fallthrough 边，并累积"条件不成立"的约束
-            microcode_environment.add_path_condition(irdst.cond, taken=False)
-            fallthrough_false = irdst.src_false
-            if not fallthrough_false.is_int():
-                print("Symbolic fallthrough target {0}, stopping".format(fallthrough_false))
-                break
-            cur_blk = cur_blk.mba.get_mblock(fallthrough_false.as_int())
-
-            microcode_environment.add_path_condition(irdst.cond, taken=True)
-            fallthrough_true = irdst.src_true
-            if not fallthrough_true.is_int():
-                print("Symbolic fallthrough target {0}, stopping".format(fallthrough_true))
-                break
-            cur_blk = cur_blk.mba.get_mblock(fallthrough_true.as_int())
-
-            continue
-
-        # 间接/符号跳转目标：无法解析，停止
-        print("Unresolvable jump target {0}, stopping".format(irdst))
-        break
-
-    return microcode_environment
+    microcode_environment.dump(log.console_logger)
 
 def show_insn_info(ins,blk):
 

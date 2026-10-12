@@ -11,7 +11,8 @@ from typing import List, Optional, Dict
 
 from d810.ExprMopId import ExprMopId
 from d810.ExprEvaluator import ExprEvaluator
-from d810.hexrays_helpers import equal_mops_ignore_size
+from d810.hexrays_helpers import equal_mops_ignore_size, append_mop_if_not_in_list
+from d810.utils import get_mop_name
 from ida_hexrays import (
     mblock_t, mop_t,
     mop_r, mop_S, mop_v, mop_f, mop_a,
@@ -41,7 +42,7 @@ class SymbolicMicroCodeEnvironment(ExprEvaluator):
         # 定义的变量,赋值的变量
         self.mop_define: Optional[Dict[ExprMopId, Expr]] = {}
         # 未定义变量,对于外部变量的依赖
-        self.mop_undefinde: List[ExprMopId] = []
+        self.mop_undefinde = []
         # 不支持计算的mop类型
         # 主要有两个原因get_mop_name 不支持这个类型的mop,并且没法计算这个类型的mop
         self.mop_unsupport: Optional[Dict[ExprMopId, Expr]] = {}
@@ -161,7 +162,7 @@ class SymbolicMicroCodeEnvironment(ExprEvaluator):
         # Not found: create a fresh symbolic variable
         if create_undefind_symbol:
             mop_id = ExprMopId(mop)
-            self.mop_undefinde.append(mop_id)
+            append_mop_if_not_in_list(mop, self.mop_undefinde)
             symb_log.debug("Created symbolic variable for undefined mop: {0}".format(mop_id.name))
             return mop_id
 
@@ -174,12 +175,10 @@ class SymbolicMicroCodeEnvironment(ExprEvaluator):
     def does_only_need(self, father_env: SymbolicMicroCodeEnvironment) -> bool:
 
         if self.mop_undefinde:
-            for mop_expr in self.mop_undefinde:
-                mop = mop_expr.get_mop()
+            for mop in self.mop_undefinde:
                 # 在之前累积的环境中查找
-                found_in_define = father_env.lookup(mop, create_undefind_symbol=False) is not None
-                found_in_undefind = any(equal_mops_ignore_size(h_mop_expr.get_mop(), mop) for h_mop_expr in
-                                        father_env.mop_undefinde)
+                found_in_define = father_env.lookup(mop) is not None
+                found_in_undefind = any(equal_mops_ignore_size(h_mop_expr, mop) for h_mop_expr in father_env.mop_undefinde)
 
                 # 如果这个未定义变量在之前环境中找不到，终止这条路径
                 if not (found_in_define or found_in_undefind):
@@ -227,8 +226,8 @@ class SymbolicMicroCodeEnvironment(ExprEvaluator):
                 log.debug("  {0} = {1}".format(mopExpr.name, value))
         if len(self.mop_undefinde) > 0:
             log.debug("[Undefine]")
-            for mopExpr in self.mop_undefinde:
-                log.debug("  mop : {0}".format(mopExpr.name))
+            for mop in self.mop_undefinde:
+                log.debug("  mop : {0}".format(get_mop_name(mop)))
 
         total = len(self.mop_define)
         log.debug("-" * 60)

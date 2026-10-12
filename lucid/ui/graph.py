@@ -1,17 +1,19 @@
 import ida_graph
 import ida_hexrays as hr
 import ida_kernwin as kw
-from ida_hexrays import mblock_t, mop_t, optblock_t, minsn_visitor_t, mbl_array_t,mop_n
+from ida_hexrays import mblock_t, mop_t, optblock_t, minsn_visitor_t, mbl_array_t, mop_n
 
 import ida_lines
 import re
 
 from PySide6 import QtWidgets
 from lucid.ui.VariableManagerChooser import PureModalPatchChooser
-from lucid.util.D810Utils import UnFlaInfo, eval_current_blk,get_block_top_level_inputs
+from lucid.util.D810Utils import UnFlaInfo, get_block_top_level_inputs
+from d810.Environment import SymbolicMicroCodeEnvironment
+from lucid.util import log, D810Utils
 
 
-def graphviz(mba,output_path):
+def graphviz(mba, output_path):
     from graphviz import Digraph
     dot = Digraph()
     dot.attr(splines='ortho')
@@ -40,7 +42,8 @@ def graphviz(mba,output_path):
     with open(output_path, "w") as f:
         f.write(dot.source)
     # dot.render("/home/chic/graph_with_content", format="png")
-    print("dot已保存到 :",output_path)
+    print("dot已保存到 :", output_path)
+
 
 class microcode_graphviewer_t(ida_graph.GraphViewer):
     """Displays the graph view of Hex-Rays microcode."""
@@ -95,8 +98,6 @@ class microcode_graphviewer_t(ida_graph.GraphViewer):
             return vp.s
 
 
-
-
 class dominance_graphviewer_t(microcode_graphviewer_t):
 
     def __init__(self, *args):
@@ -108,6 +109,7 @@ class dominance_graphviewer_t(microcode_graphviewer_t):
         self.jump_blk_id = self.AddCommand("jump to target blk", "")
         self.show_UnFlatten_log_id = self.AddCommand("show UnFlatten Info log ", "")
         self.eval_current_blk_id = self.AddCommand("eval current blk ", "")
+        self.execute_blks_id = self.AddCommand("execute blks", "")
         self.state = "cfg"
         self.back_stack = []
         self.select_block = None
@@ -147,21 +149,28 @@ class dominance_graphviewer_t(microcode_graphviewer_t):
                 self.Refresh()
                 self.Select(self.select_node)
         elif cmd_id == self.show_UnFlatten_log_id:
-            UnFlaInfo(self._mba,self.select_block)
+            UnFlaInfo(self._mba, self.select_block)
         elif cmd_id == self.eval_current_blk_id:
             title_msg = "eval设置变量 (双击改值 / 确定即可开始执行)"
             mop_undefind = get_block_top_level_inputs(self.select_block)
             dialog = PureModalPatchChooser(title_msg, mop_undefind)
             if QtWidgets.QDialog.DialogCode.Accepted == dialog.exec():
                 environment_values = dialog.get_results()  # 现在直接返回 {mop_t: int}
-                eval_current_blk(self.select_block, environment_values)
+                D810Utils.eval_current_blk(self.select_block, environment_values)
             else:
                 print("dialog cancelled")
+        elif cmd_id == self.execute_blks_id:
+            start_blk, end_blk = self._execute_blks_dialog()
+            if start_blk is not None and end_blk is not None:
+                env = D810Utils.eva_blks(self._mba, start_blk, end_blk)
+                if env is not None:
+                    env.dump(log.console_logger)
+                print("exe blks ", start_blk, end_blk)
         elif cmd_id == self.save_graphviz_id:
             file_path = kw.ask_file(True, "*.dot", "Please select a file")
             if file_path:
                 kw.msg("Selected file: {}\n".format(file_path))
-                graphviz(self._mba,file_path)
+                graphviz(self._mba, file_path)
             else:
                 kw.msg("No file selected\n")
             print("save_graphviz_id")
@@ -186,6 +195,53 @@ class dominance_graphviewer_t(microcode_graphviewer_t):
         :returns: Boolean. True if you handled the event
         """
         print("OnKeydown, vk=%d shift=%d" % (vkey, shift))
+
+    def _execute_blks_dialog(self):
+
+        class ExecuteBlksForm(kw.Form):
+            def __init__(self):
+                F = kw.Form
+                F.__init__(
+                    self,
+                    r"""STARTITEM 0
+                    BUTTONS YES*OK NO*Cancel
+                    Execute Blocks
+                    
+                    <##Start Block :{start_blk}>
+                    <##End Block   :{end_blk}>
+                    """,
+                    {
+                        'start_blk': F.StringInput(swidth=20),
+                        'end_blk': F.StringInput(swidth=20),
+                    }
+                )
+
+        form = ExecuteBlksForm()
+        form, args = form.Compile()
+        ok = form.Execute()
+        if ok != 1:
+            form.Free()
+            return None,None
+
+        try:
+            start_blk = int(form.start_blk.value)
+            end_blk = int(form.end_blk.value)
+        except ValueError:
+            print("Block numbers must be integers")
+            form.Free()
+            return None,None
+        form.Free()
+
+        # mba 的第一个块(serial=0)和最后一个块(serial=qty-1)是空块，有效范围是 1 ~ qty-2
+        max_valid = self._mba.qty - 2
+        if start_blk < 1 or end_blk > max_valid:
+            print("Block range must be within 1 ~ %d (first and last blocks are empty)" % max_valid)
+            return None,None
+        if start_blk > end_blk:
+            print("Start block must be <= end block")
+            return None,None
+
+        return start_blk, end_blk
 
     def compute_dominates(self):
         nodes = set(list(range(self._mba.qty)))
@@ -263,12 +319,12 @@ class printer_t(hr.vd_printer_t):
     def get_mc(self):
         return self.mc
 
-    def _print(self, indent, line):    # 被动调用，一行行的传入microcode反编译结果
+    def _print(self, indent, line):  # 被动调用，一行行的传入microcode反编译结果
         self.mc.append(line)
         return 1
 
 
-def show_microcode_graph(mba,fn_name,lines=None):
+def show_microcode_graph(mba, fn_name, lines=None):
     if lines == None:
         vp = printer_t()
         mba.set_mba_flags(mba.get_mba_flags())
@@ -282,4 +338,3 @@ def show_microcode_graph(mba,fn_name,lines=None):
         if g:
             g.Show()
         return g
-
