@@ -158,6 +158,37 @@ class SymbolicMicroCodeEnvironment(ExprEvaluator):
                     # append_mop_if_not_in_list(expr.get_mop(), self.switch_status)
         return list_mopid
 
+    def track_backward(self, forward_env):
+        """
+        向后追踪：将 forward_env 中的定义合并到当前环境。
+        
+        逻辑：forward_env 表示一个块执行后的状态（哪些变量被定义了，值是什么）。
+        我们需要反推：为了达到这个状态，执行前需要什么条件。
+        
+        对于每个在 forward_env 中被定义的变量：
+        - 如果当前环境已经有该变量的约束，需要合并（取交集）
+        - 如果当前环境没有该变量，从 forward_env 继承
+        """
+        # 合并定义的变量
+        for mop, expr in forward_env.mop_define.items():
+            if mop not in self.mop_define:
+                # 当前环境没有这个定义，从 forward_env 继承
+                self.mop_define[mop] = expr
+            else:
+                # 当前环境已有定义，需要合并（这里简化处理：保留当前定义）
+                # 更复杂的实现可以做表达式等价性检查或约束合并
+                pass
+        
+        # 合并未定义变量
+        for mop in forward_env.mop_undefinde:
+            if mop not in self.mop_undefinde:
+                self.mop_undefinde.append(mop)
+        
+        # 合并路径约束
+        for cond in forward_env.his_path_cond:
+            if cond not in self.his_path_cond:
+                self.his_path_cond.append(cond)
+
     # def mem_read(self):
     #     pass
     def eval_expr_mopid(self, expr, **kwargs):
@@ -195,3 +226,5 @@ class SymbolicMicroCodeEnvironment(ExprEvaluator):
         log.debug("-" * 60)
         log.debug("Total: {0} entries".format(total))
         log.debug("=" * 60)
+
+

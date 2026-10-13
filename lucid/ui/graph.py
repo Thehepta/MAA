@@ -168,8 +168,8 @@ class dominance_graphviewer_t(microcode_graphviewer_t):
         elif cmd_id == self.trace_blks_id:
             start_blk, end_blk = self.eval_blks_dialog("trace blks")
             if start_blk is not None and end_blk is not None:
-                D810Utils.eval_blks(self._mba, start_blk, end_blk)
-                print("exe blks ", start_blk, end_blk)
+                D810Utils.trace_blks(self._mba, start_blk, end_blk)
+                print("exe blks ", end_blk, start_blk)
         elif cmd_id == self.save_graphviz_id:
             file_path = kw.ask_file(True, "*.dot", "Please select a file")
             if file_path:
@@ -239,9 +239,6 @@ class dominance_graphviewer_t(microcode_graphviewer_t):
         max_valid = self._mba.qty - 2
         if start_blk < 1 or end_blk > max_valid:
             print("Block range must be within 1 ~ %d (first and last blocks are empty)" % max_valid)
-            return None,None
-        if start_blk > end_blk:
-            print("Start block must be <= end block")
             return None,None
 
         return start_blk, end_blk

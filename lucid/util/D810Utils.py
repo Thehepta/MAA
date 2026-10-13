@@ -123,6 +123,22 @@ def eval_blks(mba, start_blk_serial, end_blk_serial, max_blocks: int = 1000):
         microcode_environment.dump(log.console_logger)
 
 
+def trace_blks(mba, start_blk_serial, end_blk_serial, max_blocks: int = 1000):
+    paths = find_all_paths_dfs(mba.get_mblock(start_blk_serial), [mba.get_mblock(end_blk_serial)])
+    if len(paths) == 0:
+        return
+    print("Found path: {0}".format(paths))
+    for path in paths:
+
+        microcode_environment = SymbolicMicroCodeEnvironment()
+        microcode_interpreter = SymbolicMicroCodeInterpreter()
+        for blk_serial in reversed(path):
+            print("Cur path: {0}".format(blk_serial))
+            cur_blk = mba.get_mblock(blk_serial)
+            microcode_interpreter.eval_blk(cur_blk, microcode_environment)
+
+
+
 def show_insn_info(ins, blk):
     print("op:{0}     type:{1} content:{2}".format(opcode_to_string(ins.opcode), type(ins.opcode), ins.opcode))
     print("insn.l:{0} type:{1} content:{2} valnum:{3}".format(ins.l.dstr(), mop_type_to_string(ins.l.t),
