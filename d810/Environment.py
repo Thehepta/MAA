@@ -10,7 +10,6 @@ import logging
 from typing import List, Optional, Dict
 
 from d810.ExprMopId import ExprMopId
-from d810.ExprEvaluator import ExprEvaluator
 from d810.hexrays_helpers import equal_mops_ignore_size, append_mop_if_not_in_list
 from d810.utils import get_mop_name
 from ida_hexrays import (
@@ -28,7 +27,7 @@ from d810.errors import UnsupportedMopException
 symb_log = logging.getLogger('D810.env')
 
 
-class SymbolicMicroCodeEnvironment(ExprEvaluator):
+class SymbolicMicroCodeEnvironment():
     """
     Symbolic environment mapping microcode operands to symbolic expressions.
 
@@ -38,7 +37,6 @@ class SymbolicMicroCodeEnvironment(ExprEvaluator):
     """
 
     def __init__(self):
-        super().__init__()
         # 定义的变量,赋值的变量
         self.mop_define: Optional[Dict[ExprMopId, Expr]] = {}
         # 未定义变量,对于外部变量的依赖
@@ -188,12 +186,6 @@ class SymbolicMicroCodeEnvironment(ExprEvaluator):
         for cond in forward_env.his_path_cond:
             if cond not in self.his_path_cond:
                 self.his_path_cond.append(cond)
-
-    # def mem_read(self):
-    #     pass
-    def eval_expr_mopid(self, expr, **kwargs):
-        ret = self.lookup(expr)
-        return ret
 
     def dump(self, logger=None):
         """

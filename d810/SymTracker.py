@@ -7,7 +7,7 @@ from d810.ExprSimplifier import simplify
 from d810.Interpreter import SymbolicMicroCodeInterpreter
 from ida_hexrays import *
 
-from d810.Expr import Expr, ExprInt, ExprId
+from d810.Expr import Expr, ExprInt, ExprId, walk_expr_iter
 from d810.cfg_utils import change_1way_block_successor, change_2way_block_conditional_successor, duplicate_block
 from d810.hexrays_helpers import equal_mops_ignore_size, get_mop_index, get_blk_index
 from d810.hexrays_formatters import format_minsn_t, format_mop_t
@@ -36,8 +36,6 @@ class BlockInfo(object):
         new_block_info = BlockInfo(self.blk)
         return new_block_info
 
-interpreter = SymbolicMicroCodeInterpreter()
-
 
 class SymbolicMopHistory:
     """
@@ -50,8 +48,7 @@ class SymbolicMopHistory:
     def __init__(self, searched_mop_list: List[mop_t]):
         self.searched_mop_list = [mop_t(x) for x in searched_mop_list]
         self.block_path_list: List[BlockInfo] = []
-
-        self._interpreter = SymbolicMicroCodeInterpreter()
+        self.interpreter = SymbolicMicroCodeInterpreter()
         self.initial_environment = SymbolicMicroCodeEnvironment()
 
     def add_mop_initial_value(self, mop: mop_t, value: Union[int, Expr]):
@@ -82,14 +79,24 @@ class SymbolicMopHistory:
     def is_resolved(self) -> bool:
         """Check if all searched mops can be evaluated (even symbolically)."""
         for searched_mop in self.searched_mop_list:
-            result = self.initial_environment.lookup(searched_mop, create_undefind_symbol=False)
+            result = self.initial_environment.lookup(searched_mop)
             if result is not None:
                 return result.is_int()
         return False
 
     def track_block(self,blk):
         initial_env = SymbolicMicroCodeEnvironment()
-        interpreter.eval_blk(blk, initial_env)
+        self.interpreter.eval_blk(blk, initial_env)
+        for searched_mop in list(self.searched_mop_list):
+            result = initial_env.lookup(searched_mop)
+            if result is not None:
+                self.initial_environment.define(searched_mop,result)
+                resolved_mop_index = get_mop_index(searched_mop, self.searched_mop_list)
+                self.searched_mop_list.pop(resolved_mop_index)
+                nodes = list(walk_expr_iter(result))
+                mop_ids = [x.name for x in nodes if x.is_mopid()]
+                for mop_id in mop_ids:
+                    self.searched_mop_list.append(mop_id)
         self.initial_environment.track_backward(initial_env)
 
     @property
