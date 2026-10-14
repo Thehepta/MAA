@@ -1,5 +1,6 @@
 import ida_kernwin
 from PySide6 import QtWidgets, QtCore, QtGui
+from d810.hexrays_formatters import format_mop_t
 from d810.utils import get_mop_name
 
 
@@ -55,7 +56,7 @@ class PureModalPatchChooser(QtWidgets.QDialog):
 
         # 去重：同名变量只保留第一个
         for mop_expr in top_inputs_list:
-            clean_name = mop_expr.name
+            clean_name = format_mop_t(mop_expr)
             if clean_name in self.name_to_expr:
                 continue  # 跳过重复
             self.name_to_expr[clean_name] = mop_expr

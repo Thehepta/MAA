@@ -10,6 +10,7 @@ from PySide6 import QtWidgets
 from lucid.ui.VariableManagerChooser import PureModalPatchChooser
 from lucid.util.D810Utils import UnFlaInfo, get_block_top_level_inputs
 from d810.Environment import SymbolicMicroCodeEnvironment
+from d810.hexrays_formatters import format_mop_t
 from lucid.util import log, D810Utils
 
 
@@ -98,6 +99,72 @@ class microcode_graphviewer_t(ida_graph.GraphViewer):
             return vp.s
 
 
+class TraceBlksDialog(QtWidgets.QDialog):
+    """
+    向后追踪对话框：
+    - 未定义变量列表（可多选）
+    - 前驱块列表（单选）
+    """
+
+    def __init__(self, title, undefined_vars, pred_blocks, parent=None):
+        """
+        @param undefined_vars: list[ExprMopId] - 未定义变量列表
+        @param pred_blocks: list[mblock_t] - 前驱块列表
+        """
+        super().__init__(parent)
+        self.setWindowTitle(title)
+        self.undefined_vars = undefined_vars
+        self.pred_blocks = pred_blocks
+
+        layout = QtWidgets.QVBoxLayout(self)
+
+        # 未定义变量列表（可多选）
+        layout.addWidget(QtWidgets.QLabel("未定义变量（可多选）:"))
+        self.var_list = QtWidgets.QListWidget()
+        self.var_list.setSelectionMode(QtWidgets.QAbstractItemView.SelectionMode.MultiSelection)
+        for var in undefined_vars:
+            self.var_list.addItem(format_mop_t(var))
+        layout.addWidget(self.var_list)
+
+        # 前驱块列表（单选）
+        layout.addWidget(QtWidgets.QLabel("前驱块（单选）:"))
+        self.pred_list = QtWidgets.QListWidget()
+        self.pred_list.setSelectionMode(QtWidgets.QAbstractItemView.SelectionMode.SingleSelection)
+        for blk in pred_blocks:
+            self.pred_list.addItem("Block {0}".format(blk.serial))
+        layout.addWidget(self.pred_list)
+
+        # 按钮
+        btn_box = QtWidgets.QDialogButtonBox()
+        btn_ok = QtWidgets.QPushButton("确定")
+        btn_cancel = QtWidgets.QPushButton("取消")
+        btn_box.addButton(btn_ok, QtWidgets.QDialogButtonBox.ButtonRole.AcceptRole)
+        btn_box.addButton(btn_cancel, QtWidgets.QDialogButtonBox.ButtonRole.RejectRole)
+        btn_box.accepted.connect(self.accept)
+        btn_box.rejected.connect(self.reject)
+        layout.addWidget(btn_box)
+
+        self.setMinimumWidth(400)
+        self.setMinimumHeight(300)
+
+    def get_results(self):
+        """
+        返回 (selected_vars, selected_pred)
+        - selected_vars: list[ExprMopId] - 选中的未定义变量
+        - selected_pred: mblock_t or None - 选中的前驱块
+        """
+        selected_vars = []
+        for idx in self.var_list.selectedIndexes():
+            selected_vars.append(self.undefined_vars[idx.row()])
+
+        selected_pred = None
+        pred_indexes = self.pred_list.selectedIndexes()
+        if pred_indexes:
+            selected_pred = self.pred_blocks[pred_indexes[0].row()]
+
+        return selected_vars, selected_pred
+
+
 class dominance_graphviewer_t(microcode_graphviewer_t):
 
     def __init__(self, *args):
@@ -166,10 +233,43 @@ class dominance_graphviewer_t(microcode_graphviewer_t):
                 D810Utils.eval_blks(self._mba, start_blk, end_blk)
                 print("exe blks ", start_blk, end_blk)
         elif cmd_id == self.trace_blks_id:
-            start_blk, end_blk = self.eval_blks_dialog("trace blks")
-            if start_blk is not None and end_blk is not None:
-                D810Utils.trace_blks(self._mba, start_blk, end_blk)
-                print("exe blks ", end_blk, start_blk)
+            if self.select_block is None:
+                print("请先选择一个块")
+                return
+
+            # 获取未定义变量
+            undefined_vars = get_block_top_level_inputs(self.select_block)
+            if not undefined_vars:
+                print("当前块没有未定义变量")
+                return
+
+            # 获取前驱块
+            pred_blocks = []
+            for pred_serial in self.select_block.predset:
+                pred_blocks.append(self._mba.get_mblock(pred_serial))
+
+            if not pred_blocks:
+                print("当前块没有前驱块")
+                return
+
+            # 显示对话框
+            dialog = TraceBlksDialog("Trace Blocks", undefined_vars, pred_blocks)
+            if QtWidgets.QDialog.DialogCode.Accepted == dialog.exec():
+                selected_vars, selected_pred = dialog.get_results()
+                if not selected_vars:
+                    print("请至少选择一个未定义变量")
+                    return
+                if selected_pred is None:
+                    print("请选择一个前驱块")
+                    return
+
+                print("选中的变量: {0}".format([format_mop_t(v) for v in selected_vars]))
+                print("选中的前驱块: {0}".format(selected_pred.serial))
+
+                # 执行向后追踪
+                D810Utils.trace_blks(self._mba, selected_pred.serial, self.select_block.serial)
+            else:
+                print("对话框已取消")
         elif cmd_id == self.save_graphviz_id:
             file_path = kw.ask_file(True, "*.dot", "Please select a file")
             if file_path:
