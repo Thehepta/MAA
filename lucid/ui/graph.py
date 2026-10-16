@@ -193,19 +193,19 @@ class dominance_graphviewer_t(microcode_graphviewer_t):
             # 显示对话框
             dialog = TraceBlksDialog("Trace Blocks", undefined_vars, pred_blocks)
             if QtWidgets.QDialog.DialogCode.Accepted == dialog.exec():
-                selected_vars, selected_pred = dialog.get_results()
-                if not selected_vars:
+                selected_undef_mops, selected_pred = dialog.get_results()
+                if not selected_undef_mops:
                     print("请至少选择一个未定义变量")
                     return
                 if selected_pred is None:
                     print("请选择一个前驱块")
                     return
 
-                print("选中的变量: {0}".format([format_mop_t(v) for v in selected_vars]))
+                print("选中的变量: {0}".format([format_mop_t(v) for v in selected_undef_mops]))
                 print("选中的前驱块: {0}".format(selected_pred.serial))
 
                 # 执行向后追踪
-                D810Utils.trace_blks(self._mba, selected_pred.serial, self.select_block.serial)
+                D810Utils.trace_blks(self._mba, selected_pred.serial, selected_undef_mops)
             else:
                 print("对话框已取消")
         elif cmd_id == self.save_graphviz_id:

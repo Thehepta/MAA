@@ -2,7 +2,7 @@ from __future__ import annotations
 import logging
 from typing import Dict, Optional
 
-from d810.Environment import SymbolicMicroCodeEnvironment
+from d810.Environment import SymbolicMicroCodeEnvironment, symb_log
 from d810.ExprSimplifier import simplify
 from d810.Interpreter import SymbolicMicroCodeInterpreter
 from ida_hexrays import *
@@ -46,7 +46,7 @@ class SymbolicMopHistory:
     """
 
     def __init__(self, searched_mop_list: List[mop_t]):
-        self.searched_mop_list = [mop_t(x) for x in searched_mop_list]
+        self.searched_mop_list = [x for x in searched_mop_list]
         self.block_path_list: List[BlockInfo] = []
         self.interpreter = SymbolicMicroCodeInterpreter()
         self.initial_environment = SymbolicMicroCodeEnvironment()
@@ -78,10 +78,8 @@ class SymbolicMopHistory:
 
     def is_resolved(self) -> bool:
         """Check if all searched mops can be evaluated (even symbolically)."""
-        for searched_mop in self.searched_mop_list:
-            result = self.initial_environment.lookup(searched_mop)
-            if result is not None:
-                return result.is_int()
+        if len(self.searched_mop_list) == 0:
+            return True
         return False
 
     def track_block(self,blk):
@@ -94,9 +92,9 @@ class SymbolicMopHistory:
                 resolved_mop_index = get_mop_index(searched_mop, self.searched_mop_list)
                 self.searched_mop_list.pop(resolved_mop_index)
                 nodes = list(walk_expr_iter(result))
-                mop_ids = [x.name for x in nodes if x.is_mopid()]
-                for mop_id in mop_ids:
-                    self.searched_mop_list.append(mop_id)
+                mops = [x.get_mop() for x in nodes if x.is_mopid()]
+                for mop in mops:
+                    self.searched_mop_list.append(mop)
         self.initial_environment.track_backward(initial_env)
 
     @property
@@ -148,22 +146,23 @@ class SymbolicMopHistory:
             return None
         return simplify(expr).as_int()
 
-    def print_info(self, detailed_info=False):
+    def print_info(self, logger=None):
+
+        log = logger if logger is not None else symb_log
         formatted_mop_searched_list = [format_mop_t(x) for x in self.searched_mop_list]
         tmp_parts = []
         for formatted_mop, mop in zip(formatted_mop_searched_list, self.searched_mop_list):
             sym_val = self.get_mop_symbolic_value(mop)
             tmp_parts.append("{0}={1}".format(formatted_mop, sym_val))
         tmp = ", ".join(tmp_parts)
-        logger.info("SymbolicMopHistory: resolved={0}, path={1}, mops={2}"
+        log.debug("SymbolicMopHistory: resolved={0}, path={1}, mops={2}"
                     .format(self.is_resolved(), self.block_serial_path, tmp))
-        if detailed_info:
-            str_mop_list = "['" + "', '".join(formatted_mop_searched_list) + "']"
-            if len(self.block_path) == 0:
-                logger.info("SymbolicMopHistory for {0} => nothing".format(str_mop_list))
-                return
-            logger.info("  path {0}".format(self.block_serial_path))
-
+        str_mop_list = "['" + "', '".join(formatted_mop_searched_list) + "']"
+        if len(self.block_path) == 0:
+            log.debug("SymbolicMopHistory for {0} => nothing".format(str_mop_list))
+            return
+        log.debug("  path {0}".format(self.block_serial_path))
+        self.initial_environment.dump(logger)
 
 # A MopTracker will create new MopTracker to recursively track variable when multiple paths are possible,
 # The cur_mop_tracker_nb_path global variable is used to limit the number of MopTracker created
@@ -192,12 +191,12 @@ class MopTracker(object):
         cur_mop_tracker_nb_path += 1
         return new_mop_tracker
 
-    def search_backward(self, blk: mblock_t, ins: Optional[minsn_t|None], avoid_list=None, must_use_pred=None,
+    def search_backward(self, blk: mblock_t, avoid_list=None, must_use_pred=None,
                         stop_at_first_duplication=False) -> List[SymbolicMopHistory]:
         logger.debug("Searching backward for: {0}".format([format_mop_t(x) for x in self.searched_mop_list]))
         self.mba = blk.mba
         self.avoid_list = avoid_list if avoid_list else []
-        blk_with_multiple_pred = self.search_until_multiple_predecessor(blk, ins)
+        blk_with_multiple_pred = self.search_until_multiple_predecessor(blk)
         
         if self.history.is_resolved():
             logger.debug("MopTracker is resolved:  {0}".format(self.history.block_serial_path))
@@ -224,11 +223,11 @@ class MopTracker(object):
         else:
             for blk_pred_serial in blk_with_multiple_pred.predset:
                 new_tracker = self.get_copy()
-                possible_histories += new_tracker.search_backward(self.mba.get_mblock(blk_pred_serial), None,
+                possible_histories += new_tracker.search_backward(self.mba.get_mblock(blk_pred_serial),
                                                                   self.avoid_list, must_use_pred)
         return possible_histories
 
-    def search_until_multiple_predecessor(self, blk: mblock_t, ins: Union[None, minsn_t] = None) -> Union[None, mblock_t]:
+    def search_until_multiple_predecessor(self, blk: mblock_t) -> Union[None, mblock_t]:
 
         cur_blk = blk
         while not self.history.is_resolved():

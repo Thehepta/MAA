@@ -1,6 +1,7 @@
 from typing import List, Tuple
 
 import ida_hexrays
+from d810 import SymTracker
 from d810.Environment import SymbolicMicroCodeEnvironment
 from d810.Interpreter import SymbolicMicroCodeInterpreter
 from d810.generic import D810OllvmDispatcherInfo
@@ -123,27 +124,15 @@ def eval_blks(mba, start_blk_serial, end_blk_serial, max_blocks: int = 1000):
         microcode_environment.dump(log.console_logger)
 
 
-def trace_blks(mba, start_blk_serial, end_blk_serial, max_blocks: int = 1000):
+def trace_blks(mba, start_blk_serial, selected_undef_mops, max_blocks: int = 1000):
     """
     向后追踪：从 end_blk 开始，反向执行到 start_blk。
     """
-    paths = find_all_paths_dfs(mba.get_mblock(start_blk_serial), [mba.get_mblock(end_blk_serial)])
-    if len(paths) == 0:
-        print("No path found from block {0} to block {1}".format(start_blk_serial, end_blk_serial))
-        return
-    print("Found path: {0}".format(paths))
-    for path in paths:
-        print("Cur path: {0}".format(path))
-        microcode_environment = SymbolicMicroCodeEnvironment()
-        microcode_interpreter = SymbolicMicroCodeInterpreter()
-        for blk_serial in reversed(path):
-            print("  Executing block: {0}".format(blk_serial))
-            cur_blk = mba.get_mblock(blk_serial)
-            microcode_interpreter.eval_blk(cur_blk, microcode_environment)
 
-        # 输出最终环境
-        microcode_environment.dump(log.console_logger)
-
+    father_tracker = SymTracker.MopTracker(selected_undef_mops, max_nb_block=100, max_path=100)
+    father_histories = father_tracker.search_backward(mba.get_mblock(start_blk_serial))
+    for history in father_histories:
+        history.print_info(log.console_logger)
 
 
 def show_insn_info(ins, blk):
